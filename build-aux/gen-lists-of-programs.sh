@@ -131,6 +131,7 @@ normal_progs='
     unexpand
     uniq
     unlink
+    unorm
     vdir
     wc
     whoami
