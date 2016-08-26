@@ -1,0 +1,28 @@
+Description:
+Multibyte file reader/parser modulie
+
+Files:
+lib/mbbuffer.c
+lib/mbbuffer.h
+
+Depends-on:
+quotearg
+xalloc
+wchar
+wcwidth
+unitypes
+multibyte
+
+configure.ac:
+
+Makefile.am:
+lib_SOURCES += mbbuffer.h mbbuffer.c
+
+Include:
+"mbbuffer.h"
+
+License:
+GPLv3+
+
+Maintainer:
+Assaf Gordon

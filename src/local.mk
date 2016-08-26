@@ -70,6 +70,13 @@ EXTRA_DIST +=		\
 
 CLEANFILES += $(SCRIPTS)
 
+
+##
+## Temporary hack: a debug program for mbbuffer
+##
+bin_PROGRAMS += src/mbbuffer-debug
+src_mbbuffer_debug_SOURCES = src/mbbuffer-debug.c
+
 # Also remove these sometimes-built programs.
 # For example, even when excluded, they're built via 'sc_check-AUTHORS'
 # or 'dist'.

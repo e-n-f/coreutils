@@ -1,0 +1,26 @@
+Files:
+tests/test-mbbuffer.c
+
+Depends-on:
+wchar
+wcwidth
+unitypes
+multibyte
+
+configure.ac:
+# Check if fmemopen/funopen exists
+AC_CHECK_FUNC([fmemopen], [AC_DEFINE([HAVE_FMEMOPEN], [1],
+                               [Define if fmemopen exists.])])
+AC_CHECK_FUNC([funopen], [AC_DEFINE([HAVE_FUNOPEN], [1],
+                               [Define if funopen exists.])])
+
+Makefile.am:
+TESTS += test-mbbuffer
+check_PROGRAMS += test-mbbuffer
+test_mbbuffer_LDADD = $(LDADD) @LIBINTL@
+
+License:
+GPLv3+
+
+Maintainer:
+Assaf Gordon
