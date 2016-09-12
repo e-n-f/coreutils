@@ -264,6 +264,7 @@ all_tests =					\
   tests/misc/chcon-fail.sh			\
   tests/misc/coreutils.sh			\
   tests/misc/cut.pl				\
+  tests/misc/cut-multibyte.pl			\
   tests/misc/cut-huge-range.sh			\
   tests/misc/wc.pl				\
   tests/misc/wc-files0-from.pl			\

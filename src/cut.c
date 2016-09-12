@@ -20,7 +20,9 @@
 /* POSIX changes, bug fixes, long-named options, and cleanup
    by David MacKenzie <djm@gnu.ai.mit.edu>.
 
-   Rewrite cut_fields and cut_bytes -- Jim Meyering.  */
+   Rewrite cut_fields and cut_bytes -- Jim Meyering.
+
+   Multibyte support (cut_characters, cut_bytes_no_split) -- Assaf Gordon  */
 
 #include <config.h>
 
@@ -36,6 +38,8 @@
 #include "hash.h"
 #include "xstrndup.h"
 
+#include "multibyte.h"
+#include "mbbuffer.h"
 #include "set-fields.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
@@ -73,12 +77,18 @@ static char *field_1_buffer;
 /* The number of bytes allocated for FIELD_1_BUFFER.  */
 static size_t field_1_bufsize;
 
+/* Length of the delimiter given as argument to -d.  */
+size_t delimlen;
+
 enum operating_mode
   {
     undefined_mode,
 
-    /* Output characters that are in the given bytes. */
+    /* Output bytes that are at the given positions. */
     byte_mode,
+
+    /* Output characters that are at the given positions. */
+    character_mode,
 
     /* Output the given delimiter-separated fields. */
     field_mode
@@ -98,6 +108,11 @@ static bool complement;
 /* The delimiter character for field mode. */
 static unsigned char delim;
 
+//TODO: consilidate with 'delim' above?
+#if HAVE_WCHAR_H
+//static wchar_t wcdelim;
+#endif
+
 /* The delimiter for each line/record. */
 static unsigned char line_delim = '\n';
 
@@ -113,6 +128,9 @@ static char *output_delimiter_string;
 
 /* True if we have ever read standard input. */
 static bool have_read_stdin;
+
+/* -n used with -b */
+static bool bytes_mb_aware;
 
 /* For long options that have no equivalent short option, use a
    non-character as a pseudo short option, starting with CHAR_MAX + 1.  */
@@ -164,7 +182,7 @@ Print selected parts of lines from each FILE to standard output.\n\
   -f, --fields=LIST       select only these fields;  also print any line\n\
                             that contains no delimiter character, unless\n\
                             the -s option is specified\n\
-  -n                      (ignored)\n\
+  -n                      with -b: don't split multibyte characters\n\
 "), stdout);
       fputs (_("\
       --complement        complement the set of selected bytes, characters\n\
@@ -200,7 +218,7 @@ Each range is one of:\n\
 }
 
 
-/* Increment *ITEM_IDX (i.e., a field or byte index),
+/* Increment *ITEM_IDX (i.e., a field or index),
    and if required CURRENT_RP.  */
 
 static inline void
@@ -278,6 +296,173 @@ cut_bytes (FILE *stream)
             }
         }
     }
+}
+
+/* Read from stream STREAM, printing to standard output any selected
+   characters (possibly multibyte-characters).  */
+
+static void
+cut_characters (FILE *stream)
+{
+  size_t char_idx;	/* Number of characters in the line so far. */
+  /* Whether to begin printing delimiters between ranges for the current line.
+     Set after we've begun printing data corresponding to the first range.  */
+  bool print_delimiter;
+
+  struct mbbuf mbb;
+  //TODO: set input filename for eerror reporting
+  xmbbuf_init_file (&mbb, stream, "(input)");
+
+  char_idx = 0;
+  print_delimiter = false;
+  current_rp = frp;
+  while (true)
+    {
+      if (!mbbuf_getchar (&mbb, stream))
+        {
+          /* EOF or I/O error - bail out in both cases. */
+          if (char_idx > 0)
+            putchar (line_delim);
+          break;
+        }
+
+      if (mbb.mb_valid && (mbb.mb_len == 1) && (mbb.mb_str[0]==line_delim))
+        {
+          putchar (line_delim);
+          char_idx = 0;
+          print_delimiter = false;
+          current_rp = frp;
+          continue;
+        }
+
+      next_item (&char_idx);
+      if (print_kth (char_idx))
+        {
+          if (output_delimiter_specified)
+            {
+              if (print_delimiter && is_range_start_index (char_idx))
+                {
+                  fwrite (output_delimiter_string, sizeof (char),
+                          output_delimiter_length, stdout);
+                }
+              print_delimiter = true;
+            }
+
+          fwrite (mbb.mb_str, 1, mbb.mb_len, stdout);
+        }
+    }
+
+  mbbuf_free (&mbb);
+}
+
+/* Read from stream STREAM, printing to standard output any selected
+   characters (possibly multibyte-characters).  */
+
+static void
+cut_bytes_no_split (FILE *stream)
+{
+  size_t byte_idx;	/* Number of bytes in the line so far. */
+  /* Whether to begin printing delimiters between ranges for the current line.
+     Set after we've begun printing data corresponding to the first range.  */
+  bool print_delimiter;
+
+  struct mbbuf mbb;
+  //TODO: set input filename for eerror reporting
+  xmbbuf_init_file (&mbb, stream, "(input)");
+
+  byte_idx = 0;
+  print_delimiter = false;
+  current_rp = frp;
+  while (true)
+    {
+      if (!mbbuf_getchar (&mbb, stream))
+        {
+          /* EOF or I/O error - bail out in both cases. */
+          if (byte_idx > 0)
+            putchar (line_delim);
+          break;
+        }
+
+      if (mbb.mb_valid && (mbb.mb_len == 1) && (mbb.mb_str[0]==line_delim))
+        {
+          putchar (line_delim);
+          byte_idx = 0;
+          print_delimiter = false;
+          current_rp = frp;
+          continue;
+        }
+
+      /* Special handling for multibyte-char aware byte-splitting. */
+      const size_t mbl = mbb.mb_len;
+      const size_t end_byte_idx = byte_idx + mbl;
+
+      /* Keep the lo/hi range corresponding to the first octet
+         of this character */
+      const size_t sb_lo = current_rp->lo;
+      const size_t sb_hi = current_rp->hi;
+
+      #if 0
+      fprintf(stderr,"wc = %u, mbl=%zu byte_idx = %zu, byte_idx_end=%zu\n",
+              mbb.wc, mbl, byte_idx, end_byte_idx);
+      #endif
+
+      /* advance the 'current' field until the last byte of
+         this (optionally multibyte) character */
+      for (size_t i=0;i<mbl;++i)
+        next_item (&byte_idx);
+
+      /* Keep to lo/hi range corresponding to the last octet
+         of this character */
+      const size_t eb_lo = current_rp->lo;
+      const size_t eb_hi = current_rp->hi;
+
+      bool print_item = false;
+
+      /* Simple case: the entire multibyte-character
+         is contained in the field range.
+         TODO: handle cases where the byte cross a range,
+         e.g.
+            printf "\xF0\x90\x8C\xBB" | cut -n -b1-2,3-4
+      */
+      if (byte_idx >= sb_lo && byte_idx <= sb_hi
+          &&
+          end_byte_idx >= eb_lo && end_byte_idx <= eb_hi)
+        {
+          print_item = true;
+        }
+
+      /* case 1: the first octet of the current character is BEFORE
+         the 'low' of the current range. equilvalent to POSIX
+         statement:
+         "If the byte selected by low is not the first byte of a
+         character, low shall be decremented to select the first byte
+         of the character originally selected by low" */
+      if (byte_idx < sb_lo
+          &&
+          end_byte_idx >= eb_lo && end_byte_idx <= eb_hi)
+        {
+          print_item = true;
+        }
+
+      if (print_item)
+        {
+          if (output_delimiter_specified)
+            {
+              /* TODO: combining 'output-delimiter' with Byte-MB-aware is
+                 tricky, perhaps not even well defined?? */
+              if (print_delimiter && is_range_start_index (byte_idx))
+                {
+                  fwrite (output_delimiter_string, sizeof (char),
+                          output_delimiter_length, stdout);
+                }
+              print_delimiter = true;
+            }
+
+          fwrite (mbb.mb_str, 1, mbb.mb_len, stdout);
+        }
+    }
+
+  mbbuf_free (&mbb);
 }
 
 /* Read from stream STREAM, printing to standard output any selected fields.  */
@@ -429,7 +614,14 @@ static void
 cut_stream (FILE *stream)
 {
   if (operating_mode == byte_mode)
-    cut_bytes (stream);
+    {
+      if (bytes_mb_aware && MB_CUR_MAX>1)
+        cut_bytes_no_split (stream);
+      else
+        cut_bytes (stream);
+    }
+  else if (operating_mode == character_mode)
+    cut_characters (stream);
   else
     cut_fields (stream);
 }
@@ -505,11 +697,18 @@ main (int argc, char **argv)
       switch (optc)
         {
         case 'b':
-        case 'c':
           /* Build the byte list. */
           if (operating_mode != undefined_mode)
             FATAL_ERROR (_("only one type of list may be specified"));
           operating_mode = byte_mode;
+          spec_list_string = optarg;
+          break;
+
+        case 'c':
+          /* Build the character list. */
+          if (operating_mode != undefined_mode)
+            FATAL_ERROR (_("only one type of list may be specified"));
+          operating_mode = character_mode;
           spec_list_string = optarg;
           break;
 
@@ -540,6 +739,7 @@ main (int argc, char **argv)
           break;
 
         case 'n':
+          bytes_mb_aware = true;
           break;
 
         case 's':
