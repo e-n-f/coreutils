@@ -1,0 +1,25 @@
+Description:
+Multibyte sequences support functions and declarations
+
+Files:
+lib/multibyte.c
+lib/multibyte.h
+
+Depends-on:
+wchar
+wcwidth
+unitypes
+
+configure.ac:
+
+Makefile.am:
+lib_SOURCES += multibyte.c multibyte.h
+
+Include:
+"multibyte.h"
+
+License:
+GPLv3+
+
+Maintainer:
+Assaf Gordon

@@ -1,0 +1,11 @@
+Files:
+tests/test-multibyte.c
+
+Depends-on:
+
+configure.ac:
+
+Makefile.am:
+TESTS += test-multibyte
+check_PROGRAMS += test-multibyte
+test_multibyte_LDADD = $(LDADD) @LIBINTL@
