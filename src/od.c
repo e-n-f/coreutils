@@ -27,6 +27,7 @@
 #include "die.h"
 #include "error.h"
 #include "ftoastr.h"
+#include "multibyte.h"
 #include "quote.h"
 #include "stat-size.h"
 #include "xbinary-io.h"
@@ -268,6 +269,8 @@ static enum size_spec fp_type_size[MAX_FP_TYPE_SIZE + 1];
 
 /* Use native endianess by default.  */
 static bool input_swap;
+
+static mbstate_t mbs;  /* current multibyte state */
 
 static char const short_options[] = "A:aBbcDdeFfHhIij:LlN:OoS:st:vw::Xx";
 
@@ -533,6 +536,67 @@ print_ascii (size_t fields, size_t blank, void const *block,
   unsigned char const *p = block;
   uintmax_t i;
   int pad_remaining = pad;
+  for (i = fields; blank < i; i--)
+    {
+      int next_pad = pad * (i - 1) / fields;
+      unsigned char c = *p++;
+      const char *s;
+      char buf[4];
+
+      switch (c)
+        {
+        case '\0':
+          s = "\\0";
+          break;
+
+        case '\a':
+          s = "\\a";
+          break;
+
+        case '\b':
+          s = "\\b";
+          break;
+
+        case '\f':
+          s = "\\f";
+          break;
+
+        case '\n':
+          s = "\\n";
+          break;
+
+        case '\r':
+          s = "\\r";
+          break;
+
+        case '\t':
+          s = "\\t";
+          break;
+
+        case '\v':
+          s = "\\v";
+          break;
+
+        default:
+          sprintf (buf, (isprint (c) ? "%c" : "%03o"), c);
+          s = buf;
+        }
+
+      xprintf ("%*s", pad_remaining - next_pad + width, s);
+      pad_remaining = next_pad;
+    }
+}
+
+static void
+print_mb_character (size_t fields, size_t blank, void const *block,
+             const char *unused_fmt_string _GL_UNUSED, int width,
+             int pad)
+{
+  unsigned char const *p = block;
+  uintmax_t i;
+  int pad_remaining = pad;
+  fprintf(stderr,"fields = %zu, blank = %zu, width=%d, pad = %d\n",
+          fields, blank, width, pad);
   for (i = fields; blank < i; i--)
     {
       int next_pad = pad * (i - 1) / fields;
@@ -864,7 +928,10 @@ decode_one_format (const char *s_orig, const char *s, const char **next,
       ++s;
       fmt = CHARACTER;
       size_spec = CHAR;
-      print_function = print_ascii;
+      if (use_multibyte())
+        print_function = print_mb_character;
+      else
+        print_function = print_ascii;
       field_width = 3;
       break;
 
@@ -1614,6 +1681,8 @@ main (int argc, char **argv)
   address_base = 8;
   address_pad_len = 7;
   flag_dump_strings = false;
+
+  memset (&mbs, 0, sizeof mbs);
 
   while (true)
     {
