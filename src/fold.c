@@ -44,6 +44,9 @@ static bool count_bytes;
 /* If nonzero, at least one of the files we read was standard input. */
 static bool have_read_stdin;
 
+/* The current input file */
+static FILE *istream;
+
 static char const shortopts[] = "bsw:0::1::2::3::4::5::6::7::8::9::";
 
 static struct option const longopts[] =
@@ -112,21 +115,9 @@ adjust_column (size_t column, char c)
   return column;
 }
 
-/* Fold file FILENAME, or standard input if FILENAME is "-",
-   to stdout, with maximum line length WIDTH.
-   Return true if successful.  */
-
 static bool
-fold_file (char const *filename, size_t width)
+open_stream (char const* filename)
 {
-  FILE *istream;
-  int c;
-  size_t column = 0;		/* Screen column where next char will go. */
-  size_t offset_out = 0;	/* Index in 'line_out' for next char. */
-  static char *line_out = NULL;
-  static size_t allocated_out = 0;
-  int saved_errno;
-
   if (STREQ (filename, "-"))
     {
       istream = stdin;
@@ -142,6 +133,44 @@ fold_file (char const *filename, size_t width)
     }
 
   fadvise (istream, FADVISE_SEQUENTIAL);
+  return true;
+}
+
+
+static bool
+close_stream (char const* filename, int saved_errno)
+{
+  if (ferror (istream))
+    {
+      error (0, saved_errno, "%s", quotef (filename));
+      if (!STREQ (filename, "-"))
+        fclose (istream);
+      return false;
+    }
+  if (!STREQ (filename, "-") && fclose (istream) == EOF)
+    {
+      error (0, errno, "%s", quotef (filename));
+      return false;
+    }
+
+  return true;
+}
+
+/* Fold file FILENAME, or standard input if FILENAME is "-",
+   to stdout, with maximum line length WIDTH.
+   Return true if successful.  */
+static bool
+fold_file (char const *filename, size_t width)
+{
+  int c;
+  size_t column = 0;		/* Screen column where next char will go. */
+  size_t offset_out = 0;	/* Index in 'line_out' for next char. */
+  static char *line_out = NULL;
+  static size_t allocated_out = 0;
+  int saved_errno;
+
+  if (!open_stream (filename))
+    return false;
 
   while ((c = getc (istream)) != EOF)
     {
@@ -220,20 +249,7 @@ fold_file (char const *filename, size_t width)
   if (offset_out)
     fwrite (line_out, sizeof (char), (size_t) offset_out, stdout);
 
-  if (ferror (istream))
-    {
-      error (0, saved_errno, "%s", quotef (filename));
-      if (!STREQ (filename, "-"))
-        fclose (istream);
-      return false;
-    }
-  if (!STREQ (filename, "-") && fclose (istream) == EOF)
-    {
-      error (0, errno, "%s", quotef (filename));
-      return false;
-    }
-
-  return true;
+  return close_stream (filename, saved_errno);
 }
 
 int
