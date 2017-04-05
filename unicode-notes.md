@@ -345,6 +345,24 @@ e.g:
     U+FB01 LATIN SMALL LIGATURE FI (ﬁ)
     printf '\uFB01' |
 
+POSIX says this must work,
+in "Extended DEscription" under:
+" Multi-byte characters require multiple, concatenated escape sequences of this type, including the leading <backslash> for each byte."
+
+  $ printf "\xc3\xA4\n" | gtr '\xc3\xa4' X
+  ä
+
+
+Chracter Ranges are UNDEFINED in non-posix locale:
+"c-c"
+   "In locales other than the POSIX locale, this construct has unspecified behavior."
+
+What does this mean??
+"The ISO POSIX-2:1993 standard had a -c option that behaved similarly to the -C option, but did not supply functionality equivalent to the -c option specified in POSIX.1-2008.
+
+The earlier version also said that octal sequences referred to collating elements and could be placed adjacent to each other to specify multi-byte characters. However, it was noted that this caused ambiguities because tr would not be able to tell whether adjacent octal sequences were intending to specify multi-byte characters or multiple single byte characters. POSIX.1-2008 specifies that octal sequences always refer to single byte binary values when used to specify an endpoint of a range of collating elements.
+"
+
 
 fold/fmt
 ========
