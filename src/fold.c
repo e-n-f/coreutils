@@ -178,18 +178,10 @@ write_current_line (bool add_newline)
   column = offset_out = 0;
 }
 
-/* Fold file FILENAME, or standard input if FILENAME is "-",
-   to stdout, with maximum line length WIDTH.
-   Return true if successful.  */
-static bool
-fold_file (char const *filename, size_t width)
+static void
+fold_text (FILE *istream, size_t width, int *saved_errno)
 {
   int c;
-  int saved_errno;
-
-  if (!open_stream (filename))
-    return false;
-
   while ((c = getc (istream)) != EOF)
     {
       if (offset_out + 1 >= allocated_out)
@@ -258,10 +250,24 @@ fold_file (char const *filename, size_t width)
       line_out[offset_out++] = c;
     }
 
-  saved_errno = errno;
+  *saved_errno = errno;
 
   if (offset_out)
     write_current_line (false);
+}
+
+/* Fold file FILENAME, or standard input if FILENAME is "-",
+   to stdout, with maximum line length WIDTH.
+   Return true if successful.  */
+static bool
+fold_file (char const *filename, size_t width)
+{
+  int saved_errno;
+
+  if (!open_stream (filename))
+    return false;
+
+  fold_text (istream, width, &saved_errno);
 
   return close_stream (filename, saved_errno);
 }
