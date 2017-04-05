@@ -298,6 +298,7 @@ all_tests =					\
   tests/misc/factor-parallel.sh			\
   tests/misc/false-status.sh			\
   tests/misc/fold.pl				\
+  tests/misc/fold-multibyte.pl			\
   tests/misc/groups-dash.sh			\
   tests/misc/groups-process-all.sh		\
   tests/misc/groups-version.sh			\
