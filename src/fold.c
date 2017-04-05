@@ -47,6 +47,19 @@ static bool have_read_stdin;
 /* The current input file */
 static FILE *istream;
 
+/* Screen column where next char will go. */
+static size_t column = 0;
+
+/* Index in 'line_out' for next char. */
+static size_t offset_out = 0;
+
+/* Buffer holding the currently loaded line */
+static char *line_out = NULL;
+
+/* Allocated size of 'line_out' */
+static size_t allocated_out = 0;
+
+
 static char const shortopts[] = "bsw:0::1::2::3::4::5::6::7::8::9::";
 
 static struct option const longopts[] =
@@ -156,6 +169,15 @@ close_stream (char const* filename, int saved_errno)
   return true;
 }
 
+static void
+write_current_line (bool add_newline)
+{
+  if (add_newline)
+    line_out[offset_out++] = '\n';
+  fwrite (line_out, sizeof (char), offset_out, stdout);
+  column = offset_out = 0;
+}
+
 /* Fold file FILENAME, or standard input if FILENAME is "-",
    to stdout, with maximum line length WIDTH.
    Return true if successful.  */
@@ -163,10 +185,6 @@ static bool
 fold_file (char const *filename, size_t width)
 {
   int c;
-  size_t column = 0;		/* Screen column where next char will go. */
-  size_t offset_out = 0;	/* Index in 'line_out' for next char. */
-  static char *line_out = NULL;
-  static size_t allocated_out = 0;
   int saved_errno;
 
   if (!open_stream (filename))
@@ -179,9 +197,7 @@ fold_file (char const *filename, size_t width)
 
       if (c == '\n')
         {
-          line_out[offset_out++] = c;
-          fwrite (line_out, sizeof (char), offset_out, stdout);
-          column = offset_out = 0;
+          write_current_line (true);
           continue;
         }
 
@@ -235,9 +251,7 @@ fold_file (char const *filename, size_t width)
               continue;
             }
 
-          line_out[offset_out++] = '\n';
-          fwrite (line_out, sizeof (char), (size_t) offset_out, stdout);
-          column = offset_out = 0;
+          write_current_line (true);
           goto rescan;
         }
 
@@ -247,7 +261,7 @@ fold_file (char const *filename, size_t width)
   saved_errno = errno;
 
   if (offset_out)
-    fwrite (line_out, sizeof (char), (size_t) offset_out, stdout);
+    write_current_line (false);
 
   return close_stream (filename, saved_errno);
 }
