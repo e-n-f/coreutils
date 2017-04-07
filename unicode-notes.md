@@ -29,11 +29,17 @@ UTF-8 Sampler:
 http://www.columbia.edu/~fdc/utf8/
 
 
+UTf8 Everywhere:
+http://utf8everywhere.org/
+
 http://www.i18nguy.com/unicode/unicode-example-intro.html
 
 Unicode Toys (online conversion):
 http://qaz.wtf/u/
 
+
+OpenBSD removes non-utf8 locales:
+  http://marc.info/?l=openbsd-cvs&m=143956261214725&w=2
 
 http://unix.stackexchange.com/questions/90100/convert-between-unicode-normalization-forms-on-the-unix-command-line
 
@@ -100,6 +106,18 @@ eg.
     uconv -x 'hex-any ; any-hex/perl'
     uconv -x 'hex-any ; any-hex/java'
     uconv -x 'hex-any ; any-hex/c'
+
+
+Print unicode:
+
+   perl -e 'print "\x{3A3}\n"
+   perl -e 'print "\N{U+03A3}\n"
+   perl -e 'print "\N{GREEK CAPITAL LETTER SIGMA}\n"
+
+   printf '\u03A3\n'
+   printf '\U000003A3\n'
+
+
 
 
 
@@ -363,6 +381,15 @@ What does this mean??
 The earlier version also said that octal sequences referred to collating elements and could be placed adjacent to each other to specify multi-byte characters. However, it was noted that this caused ambiguities because tr would not be able to tell whether adjacent octal sequences were intending to specify multi-byte characters or multiple single byte characters. POSIX.1-2008 specifies that octal sequences always refer to single byte binary values when used to specify an endpoint of a range of collating elements.
 "
 
+Checking "equivalent class" in FreeBSD's join
+requires intimiate knowledge of Libc.
+
+GNU sed insead of TR (find mailing list URLs):
+
+    Upper/lower conversion
+    tr -dc 'MBSEQ'
+    Using equivalent classes
+
 
 fold/fmt
 ========
@@ -372,6 +399,14 @@ character 'WJ' (word-joiner) - special treatment in 'fold / fmt'?
 Does any 'space' character is space, or 'iswspace',
 or only ASCII 0x20,0x09,0x0d ?
 
+
+
+join
+=====
+
+FreeBSD's join bails out on invalid sequences:
+ function 'mbssep()':
+ https://opengrok.teamerlich.org/source/xref/freebsd-src/usr.bin/join/join.c#mbssep
 
 
 
