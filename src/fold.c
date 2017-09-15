@@ -116,25 +116,25 @@ Wrap input lines in each FILE, writing to standard output.\n\
    The first column is 0. */
 
 static size_t
-adjust_column (size_t column, char c)
+adjust_column (size_t clmn, char c)
 {
   if (!count_bytes)
     {
       if (c == '\b')
         {
-          if (column > 0)
-            column--;
+          if (clmn > 0)
+            clmn--;
         }
       else if (c == '\r')
-        column = 0;
+        clmn = 0;
       else if (c == '\t')
-        column += TAB_WIDTH - column % TAB_WIDTH;
+        clmn += TAB_WIDTH - clmn % TAB_WIDTH;
       else /* if (isprint (c)) */
-        column++;
+        clmn++;
     }
   else
-    column++;
-  return column;
+    clmn++;
+  return clmn;
 }
 
 static bool
@@ -188,10 +188,10 @@ write_current_line (bool add_newline)
 }
 
 static void
-fold_text (FILE *istream, size_t width, int *saved_errno)
+fold_text (FILE *input, size_t width, int *saved_errno)
 {
   int c;
-  while ((c = getc (istream)) != EOF)
+  while ((c = getc (input)) != EOF)
     {
       if (offset_out + 1 >= allocated_out)
         line_out = X2REALLOC (line_out, &allocated_out);
