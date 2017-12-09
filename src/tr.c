@@ -27,6 +27,7 @@
 #include "die.h"
 #include "error.h"
 #include "fadvise.h"
+#include "hard-locale.h"
 #include "quote.h"
 #include "safe-read.h"
 #include "xbinary-io.h"
@@ -196,6 +197,9 @@ es_match (struct E_string const *es, size_t i, char c)
   return es->s[i] == c && !es->escaped[i];
 }
 
+/* When true, enable debugging output */
+static bool debug = false;
+
 /* When true, each sequence in the input of a repeated character
    (call it c) is replaced (in the output) by a single occurrence of c
    for every c in the squeeze set.  */
@@ -266,9 +270,20 @@ static bool in_delete_set[N_CHARS];
    two specification strings and the delete switch is not given.  */
 static char xlate[N_CHARS];
 
+/* Nonzero if the corresponding locales are hard.  */
+static bool hard_LC_COLLATE;
+
+/* For long options that have no equivalent short option, use a
+   non-character as a pseudo short option, starting with CHAR_MAX + 1.  */
+enum
+{
+  DEBUG_OPTION = CHAR_MAX + 1,
+};
+
 static struct option const long_options[] =
 {
   {"complement", no_argument, NULL, 'c'},
+  {"debug", no_argument, NULL, DEBUG_OPTION},
   {"delete", no_argument, NULL, 'd'},
   {"squeeze-repeats", no_argument, NULL, 's'},
   {"truncate-set1", no_argument, NULL, 't'},
@@ -1686,6 +1701,79 @@ set_initialize (struct Spec_list *s, bool complement_this_set, bool *in_set)
       in_set[i] = (!in_set[i]);
 }
 
+/* Print the details of one List_Element */
+static void
+debug_print_element_list (struct List_element *p)
+{
+  const char* n;
+  switch (p->type)
+    {
+    case RE_NORMAL_CHAR:
+      error (0,0,"    NORMAL_CHAR: '%c' (0x%02x)", p->u.normal_char, p->u.normal_char);
+      break;
+
+    case RE_RANGE:
+      error (0,0,"    RANGE: '%c'-'%c' (0x%02x - 0x%02x)",
+	     p->u.range.first_char,p->u.range.last_char,
+	     p->u.range.first_char,p->u.range.last_char);
+      break;
+
+    case RE_CHAR_CLASS:
+      switch (p->u.char_class)
+	{
+	case CC_ALNUM:    n = "alnum";    break;
+	case CC_ALPHA:    n = "alpha";    break;
+	case CC_BLANK:    n = "blank";    break;
+	case CC_CNTRL:    n = "ctrl";     break;
+	case CC_DIGIT:    n = "digit";    break;
+	case CC_GRAPH:    n = "graph";    break;
+	case CC_LOWER:    n = "lower";    break;
+	case CC_PRINT:    n = "print";    break;
+	case CC_PUNCT:    n = "punct";    break;
+	case CC_SPACE:    n = "space";    break;
+	case CC_UPPER:    n = "upper";    break;
+	case CC_XDIGIT:   n = "xdigit";   break;
+	case CC_NO_CLASS: n = "NO-CLASS"; break;
+	default: n = "ERROR";
+	}
+      error (0,0,"    CHAR_CLASS: [:%s:]", n);
+      break;
+
+    case RE_EQUIV_CLASS:
+      error (0,0,"    EQUIV_CLASS: [=%c=] (0x%02x)", p->u.equiv_code, p->u.equiv_code);
+      break;
+
+    case RE_REPEATED_CHAR:
+      error (0,0,"    REPEATED_CHAR: '%c' 0x%02x (repeated %"PRIuMAX" times)",
+	     p->u.repeated_char.the_repeated_char, p->u.repeated_char.the_repeated_char,
+	     p->u.repeated_char.repeat_count);
+      break;
+
+    }
+}
+
+/* Print information of a Spec_List (the SETs given on the command line) */
+static void
+debug_print_set (const char* name, struct Spec_list *s)
+{
+  struct List_element *p;
+
+  error (0,0,"set: %s", name);
+  error (0,0,"  logical length: %"PRIuMAX"", s->length);
+  error (0,0,"  indefinite repeats: %s", s->n_indefinite_repeats?"yes":"no");
+  error (0,0,"  has_equiv_class: %s", s->has_equiv_class?"yes":"no");
+  error (0,0,"  has_char_class: %s", s->has_char_class?"yes":"no");
+  error (0,0,"  has_restricted_char_class: %s", s->has_restricted_char_class?"yes":"no");
+
+  /* head node itself is never used */
+  error (0,0,"  SpecList:");
+  p = s->head->next;
+  while (p) {
+    debug_print_element_list (p);
+    p = p->next;
+  }
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1704,6 +1792,8 @@ main (int argc, char **argv)
   textdomain (PACKAGE);
 
   atexit (close_stdout);
+
+  hard_LC_COLLATE = hard_locale (LC_COLLATE);
 
   while ((c = getopt_long (argc, argv, "+cCdst", long_options, NULL)) != -1)
     {
@@ -1725,6 +1815,10 @@ main (int argc, char **argv)
         case 't':
           truncate_set1 = true;
           break;
+
+	case DEBUG_OPTION:
+	  debug = true;
+	  break;
 
         case_GETOPT_HELP_CHAR;
 
@@ -1781,6 +1875,29 @@ main (int argc, char **argv)
     s2 = NULL;
 
   validate (s1, s2);
+
+  if (debug)
+    {
+      error (0, 0, "hard_LC_COLLATE: %s", hard_LC_COLLATE?"yes":"no");
+
+      const char* mode;
+      if (squeeze_repeats && non_option_args == 1)
+	mode = "squeeze (-s)";
+      else if (delete && non_option_args == 1)
+	mode = "delete (-d)";
+      else if (squeeze_repeats && delete && non_option_args == 2)
+	mode = "squeeze+delete (-ds)";
+      else if (translating)
+	mode = "translate";
+      else
+	mode = "unknown"; /* should not happen */
+      error (0, 0, "operating mode: %s%s%s", mode,
+	     complement?" +complement (-c/-C)":"",
+	     truncate_set1?" +truncate-set1 (-t)":"");
+      debug_print_set("set1",s1);
+      if (s2)
+	debug_print_set("set2",s2);
+  }
 
   /* Use binary I/O, since 'tr' is sometimes used to transliterate
      non-printable characters, or characters which are stripped away
