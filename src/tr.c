@@ -28,6 +28,7 @@
 #include "die.h"
 #include "error.h"
 #include "multibyte.h"
+#include "mbbuffer.h"
 #include "fadvise.h"
 #include "hard-locale.h"
 #include "quote.h"
@@ -442,6 +443,69 @@ is_char_class_member (enum Char_class char_class, unsigned char c)
       break;
     case CC_XDIGIT:
       result = isxdigit (c);
+      break;
+    default:
+      abort ();
+    }
+
+  return !! result;
+}
+
+/* Return nonzero if character WC is a member of the
+   equivalence class containing the character EQUIV_CLASS.  */
+static inline bool
+mb_is_equiv_class_member (unsigned char equiv_class, wchar_t wc)
+{
+  /* TODO: implement this */
+  error (1, 0, "mb_is_equiv_class_member is not yet implemented "\
+	 "do not use equiv-classes (e.g. [=A=])");
+  return false;
+}
+
+/* Return true if character WC is a member of the
+   character class CHAR_CLASS.  */
+static bool _GL_ATTRIBUTE_PURE
+mb_is_wchar_class_member (enum Char_class char_class, wchar_t wc)
+{
+  int result;
+
+  switch (char_class)
+    {
+    case CC_ALNUM:
+      result = iswalnum (wc);
+      break;
+    case CC_ALPHA:
+      result = iswalpha (wc);
+      break;
+    case CC_BLANK:
+      result = iswblank (wc);
+      break;
+    case CC_CNTRL:
+      result = iswcntrl (wc);
+      break;
+    case CC_DIGIT:
+      result = iswdigit (wc);
+      break;
+    case CC_GRAPH:
+      result = iswgraph (wc);
+      break;
+    case CC_LOWER:
+      result = iswlower (wc);
+      break;
+    case CC_PRINT:
+      result = iswprint (wc);
+      break;
+    case CC_PUNCT:
+      result = iswpunct (wc);
+      break;
+    case CC_SPACE:
+      result = iswspace (wc);
+      break;
+    case CC_UPPER:
+      result = iswupper (wc);
+      break;
+    case CC_XDIGIT:
+      result = iswxdigit (wc);
       break;
     default:
       abort ();
@@ -1979,6 +2043,159 @@ multibyte_processing_required (const struct Spec_list *s1, const struct Spec_lis
 }
 
 
+/* Returns true if the character WC matches the List_Element.
+   It is assumed that characters value beloe 255 are never
+   checked here, as checking them more efficiently is done elsewhere. */
+static bool
+mb_char_in_element_list (const struct List_element *p, wchar_t wc)
+{
+  switch (p->type)
+    {
+      /* These are all non-multibyte characters (value < 0xFF),
+	 and are never matched here. */
+    case RE_REPEATED_CHAR:
+    case RE_NORMAL_CHAR:
+    case RE_RANGE:
+      return false;
+
+    case RE_WIDE_CHAR:
+      return (wc == p->u.wide_char);
+
+    case RE_CHAR_CLASS:
+      return mb_is_wchar_class_member (p->u.char_class, wc);
+
+    case RE_EQUIV_CLASS:
+      return mb_is_equiv_class_member (p->u.equiv_code, wc);
+
+    default:
+      abort();
+    }
+}
+
+/* Returns TRUE if character WC matches any of the elements in the SET.
+   It is assumed that characters value beloe 255 are never
+   checked here, as checking them more efficiently is done elsewhere.
+
+   TODO: current implementation is inefficient (iterates over all
+         the elements in the SET for every checked character).
+	 This would benefit from simple caching using a hash/map,
+	 cf. FreeBSD's implementation. */
+static bool
+mb_char_in_spec_list (const struct Spec_list *set, wchar_t wc)
+{
+  struct List_element *p;
+
+  p = set->head->next;
+  while (p) {
+    if (mb_char_in_element_list (p, wc))
+      return true;
+    p = p->next;
+  }
+
+  return false;
+}
+
+
+/* Check if character WC is in the 'compound' set:
+   Either in the (efficiently checked) lower 8-bit octet values (0 - 255),
+   or (less efficiently) as a wide-character in the rest of the SET.
+
+   Example: given the command:
+       tr -d $'[:alpha:]5-9\316\250'
+
+   The "b_set" array will have positions A-Z,a-z,5-9 marked, and checking
+   them by index will be efficient. "b_set" is either "in_delete_set"
+   or "in_squeeze_set", as used by the unibyte processing.
+
+   The "sp_set" will additionally contain a "[:alpha:]" character class
+   and one wide character ('enum Char_class char_class' and 'wchar_t wide_char'
+   respectively, in 'struct List_element').
+
+   If WC's value is higher than 255, it will be checked (inefficiently)
+   against 'sp_set'.
+*/
+static bool
+mb_char_in_compound_set (const struct Spec_list *sp_set, const bool b_set[N_CHARS], wchar_t wc)
+{
+  bool in_set;
+  if (wc <= 0xFF)
+    in_set = !!b_set[(unsigned char)wc];
+  else
+    in_set = mb_char_in_spec_list (sp_set, wc);
+
+  if (complement)
+    in_set = !in_set;
+
+  return in_set;
+}
+
+
+/* The main loop for multibyte-aware processing. */
+static void
+tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
+{
+  struct Spec_list *squeeze_set;
+  wchar_t last_wc = -1;
+  struct mbbuf mbb;
+  mbbuf_init (&mbb, BUFSIZ);
+
+  /* Check operation mode and prepare the sets accordingly */
+  if (squeeze_repeats && delete)
+    {
+      set_initialize (s1, false, in_delete_set);
+      /* squeeze and delete - use SET2 for squeeze set */
+      squeeze_set = s2;
+      set_initialize (s2, false, in_squeeze_set);
+    }
+  else if (squeeze_repeats)
+    {
+      /* squeeze but not delete - use SET1 for squeeze set*/
+      squeeze_set = s1;
+      set_initialize (s1, false, in_squeeze_set);
+    }
+  else if (delete)
+    {
+      set_initialize (s1, false, in_delete_set);
+    }
+  else
+    error (1, 0, "multibyte translation not implemented yet (only delete/squeeze)");
+
+
+
+
+  while (mbbuf_fd_getchar(&mbb, STDIN_FILENO))
+    {
+      // 'mbb' contains the information about the parsed sequence:
+      //   mbb.mb_str   : the multibyte sequence (valid or invalid)
+      //   mbb.mb_len   : number of octets pointed by mb_str.
+      //   mbb.mb_valid : True if the sequence is valid (including if NUL).
+      //   mbb.wc       : if mb_valid, the wide-char equivalent of 'mb_str'.
+      if (mbb.mb_valid)
+	{
+	  if (delete && mb_char_in_compound_set (s1, in_delete_set, mbb.wc))
+	    continue ; /* delete, i.e. don't output the character */
+
+	  /* TODO: translation goes here */
+
+	  if (squeeze_repeats && (last_wc != -1) && (last_wc == mbb.wc)
+	      && mb_char_in_compound_set(squeeze_set, in_squeeze_set, mbb.wc))
+	    continue ; /* squeeze - i.e. don't output the character */
+	}
+
+      if (fwrite (mbb.mb_str, 1, mbb.mb_len, stdout) != mbb.mb_len)
+	die (EXIT_FAILURE, errno, _("write error"));
+
+      /* remember last character for squeezing, except for invalid chars */
+      last_wc = (mbb.mb_valid ? mbb.wc : -1);
+    }
+
+
+  if (mbb.err)
+    die (1, errno, "input error");
+
+  mbbuf_free (&mbb);
+}
+
 
 int
 main (int argc, char **argv)
@@ -2123,6 +2340,8 @@ main (int argc, char **argv)
     {
       if (debug)
 	error (0,0, "using multibyte-aware processing");
+
+      tr_multibyte (s1, s2);
     }
   else if (squeeze_repeats && non_option_args == 1)
     {
