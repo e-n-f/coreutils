@@ -27,6 +27,7 @@
 #include "system.h"
 #include "die.h"
 #include "error.h"
+#include "multibyte.h"
 #include "fadvise.h"
 #include "hard-locale.h"
 #include "quote.h"
@@ -183,6 +184,14 @@ struct Spec_list
     /* True if this spec contains at least one valid multibyte character e.g.
        LC_ALL=en_CA.UTf-8 tr -d $'\316\250' */
     bool has_multibyte_char;
+
+    /* The highest numeric value of all unibyte characters in the SET.
+       multibyte-characters do not effect this value.
+       This is used later to decide if we can optimize by using unibyte
+       processing even in multibyte locales.
+       Eg. If all the characters in SETs are < 0x7E in UTF-8, we can
+       use unibyte processing without causing data loss. */
+    unsigned char max_char_value;
   };
 
 /* A representation for escaped string1 or string2.  As a string is parsed,
@@ -285,12 +294,18 @@ static bool hard_LC_COLLATE;
 enum
 {
   DEBUG_OPTION = CHAR_MAX + 1,
+  FORCE_MULTIBYTE_OPTION
 };
 
 static struct option const long_options[] =
 {
   {"complement", no_argument, NULL, 'c'},
   {"debug", no_argument, NULL, DEBUG_OPTION},
+  /* Undocumented option ---force-multibyte (note 3 dashes).
+     Use multibyte-aware processing regardless of locale
+     or possible optimizations. Used during development
+     to test multibyte-aware processing. */
+  {"-force-multibyte", no_argument, NULL, FORCE_MULTIBYTE_OPTION},
   {"delete", no_argument, NULL, 'd'},
   {"squeeze-repeats", no_argument, NULL, 's'},
   {"truncate-set1", no_argument, NULL, 't'},
@@ -1354,6 +1369,7 @@ get_spec_stats (struct Spec_list *s)
   s->has_restricted_char_class = false;
   s->has_char_class = false;
   s->has_multibyte_char = false;
+  s->max_char_value = 0;
   for (p = s->head->next; p; p = p->next)
     {
       count len = 0;
@@ -1363,6 +1379,7 @@ get_spec_stats (struct Spec_list *s)
         {
 	case RE_NORMAL_CHAR:
           len = 1;
+	  s->max_char_value = MAX (s->max_char_value, p->u.normal_char);
           break;
 
 	case RE_WIDE_CHAR:
@@ -1373,6 +1390,7 @@ get_spec_stats (struct Spec_list *s)
         case RE_RANGE:
           assert (p->u.range.last_char >= p->u.range.first_char);
           len = p->u.range.last_char - p->u.range.first_char + 1;
+	  s->max_char_value = MAX (s->max_char_value, p->u.range.last_char);
           break;
 
         case RE_CHAR_CLASS:
@@ -1396,6 +1414,7 @@ get_spec_stats (struct Spec_list *s)
             if (is_equiv_class_member (p->u.equiv_code, i))
               ++len;
           s->has_equiv_class = true;
+	  s->max_char_value = MAX (s->max_char_value, p->u.equiv_code);
           break;
 
         case RE_REPEATED_CHAR:
@@ -1406,6 +1425,8 @@ get_spec_stats (struct Spec_list *s)
               s->indefinite_repeat_element = p;
               ++(s->n_indefinite_repeats);
             }
+	  s->max_char_value = MAX (s->max_char_value,
+				   p->u.repeated_char.the_repeated_char);
           break;
 
         default:
@@ -1865,6 +1886,7 @@ debug_print_set (const char* name, struct Spec_list *s)
   error (0,0,"  has_char_class: %s", s->has_char_class?"yes":"no");
   error (0,0,"  has_restricted_char_class: %s", s->has_restricted_char_class?"yes":"no");
   error (0,0,"  has_multibyte_char: %s", s->has_multibyte_char?"yes":"no");
+  error (0,0,"  max_char_value: 0x%02x", s->max_char_value);
 
   /* head node itself is never used */
   error (0,0,"  SpecList:");
@@ -1875,6 +1897,89 @@ debug_print_set (const char* name, struct Spec_list *s)
   }
 }
 
+
+/* Returns TRUE if multibyte-aware processing is required.
+   Retruns FALSE if unibyte process can be used (which is far more efficient).
+
+   Guidelines for when this is allowed are discussed in:
+   https://lists.gnu.org/r/coreutils/2017-09/msg00028.html (bottom of message).
+*/
+static bool
+multibyte_processing_required (const struct Spec_list *s1, const struct Spec_list *s2)
+{
+  unsigned char max_char;
+  bool mb_chars_in_sets;
+  bool have_classes;
+
+
+  /* If this isn't a 'hard' locale, unibyte processing would "just work". */
+  if (!hard_LC_COLLATE)
+    return false;
+
+  /* The highest value of a unibyte character specified in either of the SETs.
+     (possibly by an escape sequence). */
+  max_char = s1->max_char_value;
+  if (s2)
+    max_char = MAX (max_char, s2->max_char_value);
+
+  /* If any of the characters in the SETs arguments are multibyte,
+     we should use multibyte processing. If the current locale is
+     not multibyte, these struct members will never be true. */
+  mb_chars_in_sets = (s1->has_multibyte_char || (s2 && s2->has_multibyte_char));
+
+
+  /* True if either of the sets have a character class (e.g "[:alpha:]")
+     or chracater equivalence class (e.g. "[=e=]").
+     These will require multibyte-aware processing. */
+  have_classes = s1->has_equiv_class || s1->has_char_class
+    || (s2 && (s1->has_equiv_class || s1->has_char_class));
+
+
+  /* If current locale is UTF8, and all characters in the SETs arguments
+     are in the 7-bit ASCII range, it is safe to use unibyte processing. */
+  if (is_utf8_locale_name () && !mb_chars_in_sets
+      && !have_classes && (max_char<0x7F))
+    {
+      if (debug)
+	error (0,0, _("optimization: SETs contains only 7-bit ASCII values " \
+		      "- using single-byte processing"));
+      return false;
+    }
+
+  /* WARNING: Ambiguous usage.
+     For backward-compatability, if users specified octets with high
+     value (typically with an octal escape sequence), this implicitly
+     indicates they expect unibyte processing (otherwise, no point
+     of specifing exact octets - tr did not support multibyte for several
+     decades).
+
+     If they specified valid multibyte-characters (which is a new feature),
+     this indicates they expect multibyte processing.
+
+     If they specify BOTH, we warn and fall-back to unibyte.
+
+     TODO: hard-coded magic value 0x7F is for UTF-8.
+     Find better values for other locales.
+  */
+  if (max_char>=0x7F)
+    {
+      if (debug)
+	{
+	  if (mb_chars_in_sets)
+	    error (0,0, _("warning: SETs contain both octet values and " \
+			  "multibyte values - using single-byte processing"));
+	  else
+	    error (0,0, _("optimization: SETs contain escaped/octet values "\
+			  "specified - using single-byte processing"));
+	}
+      return false;
+    }
+
+  return true;
+}
+
+
+
 int
 main (int argc, char **argv)
 {
@@ -1882,6 +1987,7 @@ main (int argc, char **argv)
   int non_option_args;
   int min_operands;
   int max_operands;
+  bool force_multibyte = false;
   struct Spec_list buf1, buf2;
   struct Spec_list *s1 = &buf1;
   struct Spec_list *s2 = &buf2;
@@ -1919,6 +2025,10 @@ main (int argc, char **argv)
 
 	case DEBUG_OPTION:
 	  debug = true;
+	  break;
+
+	case FORCE_MULTIBYTE_OPTION:
+	  force_multibyte = true;
 	  break;
 
         case_GETOPT_HELP_CHAR;
@@ -2007,7 +2117,14 @@ main (int argc, char **argv)
   xset_binary_mode (STDOUT_FILENO, O_BINARY);
   fadvise (stdin, FADVISE_SEQUENTIAL);
 
-  if (squeeze_repeats && non_option_args == 1)
+  /* Check if we need multibyte-aware processing,
+     or can resort to (faster) unibyte processing. */
+  if (force_multibyte || multibyte_processing_required (s1, s2))
+    {
+      if (debug)
+	error (0,0, "using multibyte-aware processing");
+    }
+  else if (squeeze_repeats && non_option_args == 1)
     {
       set_initialize (s1, complement, in_squeeze_set);
       squeeze_filter (io_buf, sizeof io_buf, plain_read);
