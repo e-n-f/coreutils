@@ -22,6 +22,7 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <getopt.h>
+#include <wchar.h>
 
 #include "system.h"
 #include "die.h"
@@ -96,7 +97,8 @@ enum Range_element_type
     RE_RANGE,
     RE_CHAR_CLASS,
     RE_EQUIV_CLASS,
-    RE_REPEATED_CHAR
+    RE_REPEATED_CHAR,
+    RE_WIDE_CHAR
   };
 
 /* One construct in one of tr's argument strings.
@@ -125,6 +127,7 @@ struct List_element
             count repeat_count;
           }
         repeated_char;
+	wchar_t wide_char;
       }
     u;
   };
@@ -176,6 +179,10 @@ struct Spec_list
     /* True if this spec contains at least one of the character class
        constructs (all but upper and lower) that aren't allowed in s2.  */
     bool has_restricted_char_class;
+
+    /* True if this spec contains at least one valid multibyte character e.g.
+       LC_ALL=en_CA.UTf-8 tr -d $'\316\250' */
+    bool has_multibyte_char;
   };
 
 /* A representation for escaped string1 or string2.  As a string is parsed,
@@ -664,6 +671,20 @@ append_normal_char (struct Spec_list *list, unsigned char c)
   list->tail = new;
 }
 
+/* Append a newly allocated structure representing a
+   wide character C to the specification list LIST.  */
+static void
+append_multibyte_char (struct Spec_list *list, wchar_t wc)
+{
+  struct List_element *new = xmalloc (sizeof *new);
+  new->next = NULL;
+  new->type = RE_WIDE_CHAR;
+  new->u.wide_char = wc;
+  assert (list->tail);
+  list->tail->next = new;
+  list->tail = new;
+}
+
 /* Append a newly allocated structure representing the range
    of characters from FIRST to LAST to the specification list LIST.
    Return false if LAST precedes FIRST in the collating sequence,
@@ -853,6 +874,63 @@ star_digits_closebracket (const struct E_string *es, size_t idx)
   return false;
 }
 
+
+
+/* Adds the next character (or possibly the next multibyte character)
+   given an E_String and index pointing to the current position in the SET. */
+static size_t
+append_chars (struct Spec_list *list, const struct E_string *es, size_t idx)
+{
+  size_t i;
+  wchar_t wc;
+
+  /* Escaped characters in SET are always treated unibytes, never multibytes.
+     That is:
+          tr -d '\316\250'
+     Is treated as deleting two octets (\316 and \250), even
+     if the sequence "\316\250" is valid multibyte sequence in the current
+     locale.
+
+     To delete the UTF-8 multibyte sequence '\316\250'
+     (U+03A8 GREEK CAPITAL LETTER PSI) specify it as the new-style shell
+     escape or directly enter it as a character:
+            LC_ALL=en_CA.UTF-8 tr -d $'\316\250'
+            LC_ALL=en_CA.UTF-8 tr -d 'Ψ'
+     In this case, the shell will send two octets to 'tr',
+     the unquote() function will not mark the as escaped (there's nothing to
+     escape), and this function will treat them as a valid multibyte sequence
+     (and a single character).
+
+     This behaviour is discussed here (see bottom of text):
+     https://lists.gnu.org/archive/html/coreutils/2017-09/msg00028.html
+
+     NOTE: this seems to go AGAINST POSIX, which states under "EXTENDED DESCRIPTION":
+      \octal
+	 Octal sequences can be used to represent characters with
+	 specific coded values. [...] Multi-byte characters require
+	 multiple, concatenated escape sequences of this type,
+	 including the leading <backslash> for each byte.
+      http://pubs.opengroup.org/onlinepubs/9699919799/utilities/tr.html
+  */
+  if (es->escaped[idx] || !hard_LC_COLLATE)
+    {
+      append_normal_char (list, es->s[idx]);
+      return 1;
+    }
+
+  /* Try to decode the following octets as multibyte characters.
+     If invalid (or an actual unibyte), treat as unibyte octet */
+  i = mbrtowc (&wc, es->s+idx, es->len-idx, NULL);
+  if (i==0 || i==1 || i==(size_t)-1 || i==(size_t)-2)
+    {
+      append_normal_char (list, es->s[idx]);
+      return 1;
+    }
+
+  append_multibyte_char (list, wc);
+  return i;
+}
+
 /* Convert string UNESCAPED_STRING (which has been preprocessed to
    convert backslash-escape sequences) of length LEN characters into
    a linked list of the following 5 types of constructs:
@@ -991,14 +1069,14 @@ build_spec_list (const struct E_string *es, struct Spec_list *result)
         }
       else
         {
-          append_normal_char (result, p[i]);
-          ++i;
+	  /* Append a regular character (or possible a multibyte character) */
+	  i += append_chars(result, es, i);
         }
     }
 
   /* Now handle the (2 or fewer) remaining characters p[i]..p[es->len - 1].  */
-  for (; i < es->len; i++)
-    append_normal_char (result, p[i]);
+  while (i < es->len)
+    i += append_chars(result, es, i);
 
   return true;
 }
@@ -1050,6 +1128,19 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
     {
     case RE_NORMAL_CHAR:
       return_val = p->u.normal_char;
+      s->state = NEW_ELEMENT;
+      s->tail = p->next;
+      break;
+
+    case RE_WIDE_CHAR:
+      /* TODO: 'get_next' is called in unibyte processing, there's
+	        no useable value to return here.
+	        It is probably better to skip this List_element
+		and return the next one.
+	 This case could happen if the user specified BOTH multibyte-characters
+	 and escaped octal sequences, which will force us to fallback to unibyte
+	 processing. */
+      return_val = 0xFF;
       s->state = NEW_ELEMENT;
       s->tail = p->next;
       break;
@@ -1262,6 +1353,7 @@ get_spec_stats (struct Spec_list *s)
   s->has_equiv_class = false;
   s->has_restricted_char_class = false;
   s->has_char_class = false;
+  s->has_multibyte_char = false;
   for (p = s->head->next; p; p = p->next)
     {
       count len = 0;
@@ -1269,7 +1361,12 @@ get_spec_stats (struct Spec_list *s)
 
       switch (p->type)
         {
-        case RE_NORMAL_CHAR:
+	case RE_NORMAL_CHAR:
+          len = 1;
+          break;
+
+	case RE_WIDE_CHAR:
+	  s->has_multibyte_char = true;
           len = 1;
           break;
 
@@ -1749,6 +1846,9 @@ debug_print_element_list (struct List_element *p)
 	     p->u.repeated_char.repeat_count);
       break;
 
+    case RE_WIDE_CHAR:
+      error (0,0,"    WIDE_CHAR: %zx", (uintmax_t)p->u.wide_char);
+      break;
     }
 }
 
@@ -1764,6 +1864,7 @@ debug_print_set (const char* name, struct Spec_list *s)
   error (0,0,"  has_equiv_class: %s", s->has_equiv_class?"yes":"no");
   error (0,0,"  has_char_class: %s", s->has_char_class?"yes":"no");
   error (0,0,"  has_restricted_char_class: %s", s->has_restricted_char_class?"yes":"no");
+  error (0,0,"  has_multibyte_char: %s", s->has_multibyte_char?"yes":"no");
 
   /* head node itself is never used */
   error (0,0,"  SpecList:");
