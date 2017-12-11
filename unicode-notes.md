@@ -357,6 +357,26 @@ Page 438: 'interlinear' markers.
 tr
 ==
 
+Arabic digit seven (https://codepoints.net/U+06F7) does not match '[:digit:]'
+   echo "۷" | LC_ALL=ar_JO.utf8 grep '[[:digit:]]'
+
+Neither Japanese digit 5 ( https://codepoints.net/U+4E94 )
+   echo "五" | LC_ALL=ja_JP.utf8 grep '[[:digit:]]'
+
+Hebrew letter in hebrew locale:
+   $ echo "א" | LC_ALL=he_IL.utf8 grep '[[:alpha:]]'
+   א
+   $ echo "a" | LC_ALL=he_IL.utf8 grep '[[:alpha:]]'
+   a
+versus hebrew letter in english locale:
+   $ echo "א" | LC_ALL=en_US.utf8 grep '[[:alpha:]]'
+
+
+NON-BRAKING-SPACE doesn't match on linux, does match on FreeBSD, doesn't on OpenBSD
+    printf '\302\240a\n' | grep '[[:space:]]'
+
+
+
 Uppercase mapping of ligatures turns into TWO letters?
 
 e.g:
