@@ -193,6 +193,10 @@ struct Spec_list
        Eg. If all the characters in SETs are < 0x7E in UTF-8, we can
        use unibyte processing without causing data loss. */
     unsigned char max_char_value;
+
+    /* True if the SET contains [:upper:] and/or [:lower:] */
+    bool has_upper_char_class;
+    bool has_lower_char_class;
   };
 
 /* A representation for escaped string1 or string2.  As a string is parsed,
@@ -1433,6 +1437,8 @@ get_spec_stats (struct Spec_list *s)
   s->has_restricted_char_class = false;
   s->has_char_class = false;
   s->has_multibyte_char = false;
+  s->has_upper_char_class = false;
+  s->has_lower_char_class = false;
   s->max_char_value = 0;
   for (p = s->head->next; p; p = p->next)
     {
@@ -1465,7 +1471,10 @@ get_spec_stats (struct Spec_list *s)
           switch (p->u.char_class)
             {
             case CC_UPPER:
+	      s->has_upper_char_class = true;
+	      break;
             case CC_LOWER:
+	      s->has_lower_char_class = true;
               break;
             default:
               s->has_restricted_char_class = true;
@@ -1951,6 +1960,8 @@ debug_print_set (const char* name, struct Spec_list *s)
   error (0,0,"  has_restricted_char_class: %s", s->has_restricted_char_class?"yes":"no");
   error (0,0,"  has_multibyte_char: %s", s->has_multibyte_char?"yes":"no");
   error (0,0,"  max_char_value: 0x%02x", s->max_char_value);
+  error (0,0,"  has_upper_char_class: %s", s->has_upper_char_class?"yes":"no");
+  error (0,0,"  has_lower_char_class: %s", s->has_lower_char_class?"yes":"no");
 
   /* head node itself is never used */
   error (0,0,"  SpecList:");
@@ -2136,6 +2147,9 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
 {
   struct Spec_list *squeeze_set;
   wchar_t last_wc = -1;
+  wchar_t out_wc;
+  bool to_upper = false;
+  bool to_lower = false;
   struct mbbuf mbb;
   mbbuf_init (&mbb, BUFSIZ);
 
@@ -2147,9 +2161,9 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
       squeeze_set = s2;
       set_initialize (s2, false, in_squeeze_set);
     }
-  else if (squeeze_repeats)
+  else if (squeeze_repeats && s2==NULL)
     {
-      /* squeeze but not delete - use SET1 for squeeze set*/
+      /* squeeze but not delete ort ranslate - use SET1 for squeeze set*/
       squeeze_set = s1;
       set_initialize (s1, false, in_squeeze_set);
     }
@@ -2158,7 +2172,29 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
       set_initialize (s1, false, in_delete_set);
     }
   else
-    error (1, 0, "multibyte translation not implemented yet (only delete/squeeze)");
+    {
+      /* translate and squeeze - use SET2 for squeeze set */
+      if (squeeze_repeats)
+	{
+	  squeeze_set = s2;
+	  set_initialize (s2, false, in_squeeze_set);
+	}
+
+      /* Upper/lower translation. POSIX puts special restrictions
+         on using [:uppper:]/[:lower:] in the sets, and
+	 validate_case_classes() ensures they are met before starting
+	 the actual processing. If these are set, use the dedicated code
+	 path to do upper/lower conversions.
+
+	 Once that's out of the way, building the rest of the translation
+	 table is much easier (guarenteed not to have chararacter classes
+	 in SET2. */
+      to_lower = s1->has_upper_char_class && s2->has_lower_char_class;
+      to_upper = s1->has_lower_char_class && s2->has_upper_char_class;
+
+      if (!to_upper && !to_lower)
+	error (1, 0, "multibyte translation supports only upper/lower");
+    }
 
 
 
@@ -2170,23 +2206,35 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
       //   mbb.mb_len   : number of octets pointed by mb_str.
       //   mbb.mb_valid : True if the sequence is valid (including if NUL).
       //   mbb.wc       : if mb_valid, the wide-char equivalent of 'mb_str'.
+
+      out_wc = mbb.wc ; // the WC to output - same as the input
+
       if (mbb.mb_valid)
 	{
 	  if (delete && mb_char_in_compound_set (s1, in_delete_set, mbb.wc))
 	    continue ; /* delete, i.e. don't output the character */
 
-	  /* TODO: translation goes here */
+	  /* translation goes here */
 
-	  if (squeeze_repeats && (last_wc != -1) && (last_wc == mbb.wc)
-	      && mb_char_in_compound_set(squeeze_set, in_squeeze_set, mbb.wc))
+	  /* upper/lower conversions are not mutually excluses, e.g.:
+	        tr '[:upper:][:lower:]' '[:lower:][:uper:]'
+	     only change to lower if the character wasn't modified
+	     by previous upper-to-lower translation. */
+	  if (to_upper)
+	    out_wc = towupper (mbb.wc);
+	  if (to_lower && out_wc == mbb.wc)
+	    out_wc = towlower (mbb.wc);
+
+	  if (squeeze_repeats && (last_wc != -1) && (last_wc == out_wc)
+	      && mb_char_in_compound_set(squeeze_set, in_squeeze_set, out_wc))
 	    continue ; /* squeeze - i.e. don't output the character */
 	}
 
-      if (fwrite (mbb.mb_str, 1, mbb.mb_len, stdout) != mbb.mb_len)
+      if (fputwc (out_wc, stdout) != out_wc)
 	die (EXIT_FAILURE, errno, _("write error"));
 
       /* remember last character for squeezing, except for invalid chars */
-      last_wc = (mbb.mb_valid ? mbb.wc : -1);
+      last_wc = (mbb.mb_valid ? out_wc : -1);
     }
 
 
