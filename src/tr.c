@@ -210,6 +210,24 @@ struct E_string
   size_t len;
 };
 
+
+/* Pair of wide-characeters for translation */
+struct Wc_pair
+{
+  wchar_t from;
+  wchar_t to;
+};
+
+struct Mb_translation
+{
+  /* translation array for the first 256 characters (0x00 to 0xFF) */
+  wchar_t fixed[N_CHARS];
+
+  /* translation array for other characters, sorted by binary 'from' value */
+  struct Wc_pair *dyn;
+  size_t  num;
+};
+
 /* Return nonzero if the Ith character of escaped string ES matches C
    and is not escaped itself.  */
 static inline bool
@@ -2140,18 +2158,264 @@ mb_char_in_compound_set (const struct Spec_list *sp_set, const bool b_set[N_CHAR
   return in_set;
 }
 
+static wint_t
+mb_get_next (struct Spec_list *s)
+{
+  struct List_element *p;
+  wint_t return_val;
+  int i;
+
+  if (s->state == BEGIN_STATE)
+    {
+      s->tail = s->head->next;
+      s->state = NEW_ELEMENT;
+    }
+
+  p = s->tail;
+  if (p == NULL)
+    return -1;
+
+  switch (p->type)
+    {
+    case RE_NORMAL_CHAR:
+      return_val = p->u.normal_char;
+      s->state = NEW_ELEMENT;
+      s->tail = p->next;
+      break;
+
+    case RE_WIDE_CHAR:
+      return_val = p->u.wide_char;
+      s->state = NEW_ELEMENT;
+      s->tail = p->next;
+      break;
+
+    case RE_RANGE:
+      if (s->state == NEW_ELEMENT)
+        s->state = p->u.range.first_char;
+      else
+        ++(s->state);
+      return_val = s->state;
+      if (s->state == p->u.range.last_char)
+        {
+          s->tail = p->next;
+          s->state = NEW_ELEMENT;
+        }
+      break;
+
+    case RE_CHAR_CLASS:
+      if (s->state == NEW_ELEMENT)
+        {
+          for (i = 0; i < N_CHARS; i++)
+            if (is_char_class_member (p->u.char_class, i))
+              break;
+          assert (i < N_CHARS);
+          s->state = i;
+        }
+      assert (is_char_class_member (p->u.char_class, s->state));
+      return_val = s->state;
+      for (i = s->state + 1; i < N_CHARS; i++)
+        if (is_char_class_member (p->u.char_class, i))
+          break;
+      if (i < N_CHARS)
+        s->state = i;
+      else
+        {
+          s->tail = p->next;
+          s->state = NEW_ELEMENT;
+        }
+      break;
+
+    case RE_EQUIV_CLASS:
+      /* FIXME: this assumes that each character is alone in its own
+         equivalence class (which appears to be correct for my
+         LC_COLLATE.  But I don't know of any function that allows
+         one to determine a character's equivalence class.  */
+
+      return_val = p->u.equiv_code;
+      s->state = NEW_ELEMENT;
+      s->tail = p->next;
+      break;
+
+    case RE_REPEATED_CHAR:
+      /* Here, a repeat count of n == 0 means don't repeat at all.  */
+      if (p->u.repeated_char.repeat_count == 0)
+        {
+          s->tail = p->next;
+          s->state = NEW_ELEMENT;
+          return_val = mb_get_next (s);
+        }
+      else
+        {
+          if (s->state == NEW_ELEMENT)
+            {
+              s->state = 0;
+            }
+          ++(s->state);
+          return_val = p->u.repeated_char.the_repeated_char;
+          if (s->state == p->u.repeated_char.repeat_count)
+            {
+              s->tail = p->next;
+              s->state = NEW_ELEMENT;
+            }
+        }
+      break;
+
+    default:
+      abort ();
+    }
+
+  return return_val;
+}
+
+static void
+mb_init_translation (struct Spec_list *s1, struct Spec_list *s2,
+		     struct Mb_translation /* out*/ *xl)
+{
+  size_t num_chars = 0;
+  // size_t num_char_class = 0;
+  // size_t num_equiv_class = 0;
+  wint_t c1, c2;
+
+  memset (xl, 0, sizeof (struct Mb_translation));
+
+  s1->state = BEGIN_STATE;
+  s2->state = BEGIN_STATE;
+  while (true)
+    {
+      c1 = mb_get_next (s1);
+      c2 = mb_get_next (s2);
+
+      if (c1 == -1 || c2 == -1)
+	break;
+
+      /* Additional character to hold in the translation array */
+      if (c1>0xFF)
+	++num_chars;
+    }
+
+  /* Initialize default translation */
+  for (int i=0; i<=0xff; ++i)
+    xl->fixed[i] = i;
+
+  /* Allocate the translation array */
+  xl->dyn = (struct Wc_pair*) xcalloc (num_chars, sizeof (struct Wc_pair));
+  xl->num = num_chars;
+}
+
+static int
+sort_wc_pairs (const void *a, const void *b)
+{
+  struct Wc_pair* pa = (struct Wc_pair*)a;
+  struct Wc_pair* pb = (struct Wc_pair*)b;
+
+  return pa->from - pb->from;
+}
+
+static void
+mb_debug_print_translation (const struct Mb_translation *xl)
+{
+  size_t i;
+  error (0,0, "MB-Translation Table:");
+
+  error (0,0, "  translation of first 256 octets:");
+  for (i=0; i<256; ++i)
+    if (xl->fixed[i] != i)
+      error (0,0, "    0x%x => 0x%x", (unsigned int)i,
+	       (unsigned int)xl->fixed[i]);
+
+  error (0,0, "  translation of other characters:");
+  for (i=0; i<xl->num; ++i)
+    error (0,0, "    0x%x => 0x%x",
+	   (unsigned int)xl->dyn[i].from,
+	   (unsigned int)xl->dyn[i].to);
+}
+
+
+static void
+mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
+		      struct Mb_translation /*out*/ *xl)
+{
+  wint_t c1, c2;
+  size_t idx = 0;
+
+  mb_init_translation (s1, s2, xl);
+
+  s1->state = BEGIN_STATE;
+  s2->state = BEGIN_STATE;
+  while (true)
+    {
+      c1 = mb_get_next (s1);
+      c2 = mb_get_next (s2);
+
+      if (c1 == -1 || c2 == -1)
+	break;
+
+      if (c1<=0xFF)
+	{
+	  xl->fixed[c1] = c2;
+	}
+      else
+	{
+	  /* if asserts, 'mb_init_translation' mis-calculated the size */
+	  assert (idx < xl->num);
+	  xl->dyn[idx].from = c1;
+	  xl->dyn[idx].to   = c2;
+	  ++idx;
+	}
+    }
+
+  /* Sort the dynamic translation array, to make it easier to find characters */
+  qsort (xl->dyn, xl->num, sizeof (struct Wc_pair), sort_wc_pairs);
+
+  if (debug)
+    mb_debug_print_translation (xl);
+}
+
+
+static wchar_t
+mb_translate_char (wchar_t wc, struct Mb_translation *xl)
+{
+  struct Wc_pair *p;
+  int f,l,m;
+
+  if (wc < 256)
+    return xl->fixed[wc];
+
+  /* Binary Search on the dynamic translation array */
+  f = 0;
+  l = xl->num-1;
+  m = l/2;
+  while (f<=l) {
+    p = (struct Wc_pair*) &xl->dyn[m];
+    if (p->from == wc)
+      return p->to;
+    else if (p->from < wc)
+      f = m + 1;
+    else
+      l = m - 1;
+    m = (f+l)/2;
+  }
+
+  /* Not found - return untranslated character */
+  return wc;
+}
+
 
 /* The main loop for multibyte-aware processing. */
 static void
 tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
 {
-  struct Spec_list *squeeze_set;
+  struct Spec_list *squeeze_set = NULL;
+  struct Mb_translation mb_xlate;
   wchar_t last_wc = -1;
   wchar_t out_wc;
   bool to_upper = false;
   bool to_lower = false;
+  bool translate = false;
   struct mbbuf mbb;
   mbbuf_init (&mbb, BUFSIZ);
+
+  memset (&xlate, 0, sizeof xlate);
 
   /* Check operation mode and prepare the sets accordingly */
   if (squeeze_repeats && delete)
@@ -2173,6 +2437,8 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
     }
   else
     {
+      translate = true;
+
       /* translate and squeeze - use SET2 for squeeze set */
       if (squeeze_repeats)
 	{
@@ -2192,8 +2458,10 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
       to_lower = s1->has_upper_char_class && s2->has_lower_char_class;
       to_upper = s1->has_lower_char_class && s2->has_upper_char_class;
 
-      if (!to_upper && !to_lower)
-	error (1, 0, "multibyte translation supports only upper/lower");
+      mb_build_translation (s1, s2, &mb_xlate);
+
+      //if (!to_upper && !to_lower)
+      //error (1, 0, "multibyte translation supports only upper/lower");
     }
 
 
@@ -2214,16 +2482,20 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
 	  if (delete && mb_char_in_compound_set (s1, in_delete_set, mbb.wc))
 	    continue ; /* delete, i.e. don't output the character */
 
-	  /* translation goes here */
 
-	  /* upper/lower conversions are not mutually excluses, e.g.:
-	        tr '[:upper:][:lower:]' '[:lower:][:uper:]'
-	     only change to lower if the character wasn't modified
-	     by previous upper-to-lower translation. */
-	  if (to_upper)
-	    out_wc = towupper (mbb.wc);
-	  if (to_lower && out_wc == mbb.wc)
-	    out_wc = towlower (mbb.wc);
+	  if (translate)
+	    {
+	      /* upper/lower conversions are not mutually excluses, e.g.:
+		 tr '[:upper:][:lower:]' '[:lower:][:uper:]'
+		 only change to lower if the character wasn't modified
+		 by previous upper-to-lower translation. */
+	      if (to_upper)
+		out_wc = towupper (mbb.wc);
+	      if (to_lower && out_wc == mbb.wc)
+		out_wc = towlower (mbb.wc);
+
+	      out_wc = mb_translate_char (mbb.wc, &mb_xlate);
+	    }
 
 	  if (squeeze_repeats && (last_wc != -1) && (last_wc == out_wc)
 	      && mb_char_in_compound_set(squeeze_set, in_squeeze_set, out_wc))
