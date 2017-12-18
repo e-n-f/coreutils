@@ -218,6 +218,25 @@ struct Wc_pair
   wchar_t to;
 };
 
+/* The first 12 elements must have the same values as 'enum Char_class'
+   and match the indexed names in 'char_class_name[]' */
+enum Mb_translations_types
+  {
+    MBST_ALNUM=0, MBST_ALPHA=1, MBST_BLANK=2, MBST_CNTRL=3,
+    MBST_DIGIT=4, MBST_GRAPH=5, MBST_LOWER=6, MBST_PRINT=7,
+    MBST_PUNCT=8, MBST_SPACE=9, MBST_UPPER=10, MBST_XDIGIT=11,
+    MBST_EQUIV_CODE,
+    MBST_NONE
+  };
+
+/* Pair of wide-characeters for translation */
+struct Mb_special_translations
+{
+  enum Mb_translations_types type;
+  wchar_t from;
+  wchar_t to;
+};
+
 struct Mb_translation
 {
   /* translation array for the first 256 characters (0x00 to 0xFF) */
@@ -225,7 +244,12 @@ struct Mb_translation
 
   /* translation array for other characters, sorted by binary 'from' value */
   struct Wc_pair *dyn;
-  size_t  num;
+  size_t dyn_num;
+
+  /* Special translation classes (which can only be determined at runtime,
+     e.g with iswupper(3) */
+  struct Mb_special_translations *spc;
+  size_t spc_num;
 };
 
 /* Return nonzero if the Ith character of escaped string ES matches C
@@ -2159,11 +2183,14 @@ mb_char_in_compound_set (const struct Spec_list *sp_set, const bool b_set[N_CHAR
 }
 
 static wint_t
-mb_get_next (struct Spec_list *s)
+mb_get_next (struct Spec_list *s, enum Mb_translations_types *type)
 {
   struct List_element *p;
   wint_t return_val;
   int i;
+
+  if (type)
+    *type = MBST_NONE;
 
   if (s->state == BEGIN_STATE)
     {
@@ -2205,6 +2232,9 @@ mb_get_next (struct Spec_list *s)
     case RE_CHAR_CLASS:
       if (s->state == NEW_ELEMENT)
         {
+	  if (type)
+	    *type = p->u.char_class;
+
           for (i = 0; i < N_CHARS; i++)
             if (is_char_class_member (p->u.char_class, i))
               break;
@@ -2230,6 +2260,8 @@ mb_get_next (struct Spec_list *s)
          equivalence class (which appears to be correct for my
          LC_COLLATE.  But I don't know of any function that allows
          one to determine a character's equivalence class.  */
+      if (type)
+	*type = MBST_EQUIV_CODE;
 
       return_val = p->u.equiv_code;
       s->state = NEW_ELEMENT;
@@ -2242,7 +2274,7 @@ mb_get_next (struct Spec_list *s)
         {
           s->tail = p->next;
           s->state = NEW_ELEMENT;
-          return_val = mb_get_next (s);
+          return_val = mb_get_next (s, type);
         }
       else
         {
@@ -2271,9 +2303,10 @@ static void
 mb_init_translation (struct Spec_list *s1, struct Spec_list *s2,
 		     struct Mb_translation /* out*/ *xl)
 {
+  enum Mb_translations_types type;
   size_t num_chars = 0;
-  // size_t num_char_class = 0;
-  // size_t num_equiv_class = 0;
+  size_t num_char_class = 0;
+  size_t num_equiv_class = 0;
   wint_t c1, c2;
 
   memset (xl, 0, sizeof (struct Mb_translation));
@@ -2282,8 +2315,8 @@ mb_init_translation (struct Spec_list *s1, struct Spec_list *s2,
   s2->state = BEGIN_STATE;
   while (true)
     {
-      c1 = mb_get_next (s1);
-      c2 = mb_get_next (s2);
+      c1 = mb_get_next (s1, &type);
+      c2 = mb_get_next (s2, NULL);
 
       if (c1 == -1 || c2 == -1)
 	break;
@@ -2291,6 +2324,14 @@ mb_init_translation (struct Spec_list *s1, struct Spec_list *s2,
       /* Additional character to hold in the translation array */
       if (c1>0xFF)
 	++num_chars;
+
+      if (type != MBST_NONE)
+	{
+	  if (type == MBST_EQUIV_CODE)
+	    ++num_equiv_class;
+	  else
+	    ++num_char_class;
+	}
     }
 
   /* Initialize default translation */
@@ -2299,7 +2340,13 @@ mb_init_translation (struct Spec_list *s1, struct Spec_list *s2,
 
   /* Allocate the translation array */
   xl->dyn = (struct Wc_pair*) xcalloc (num_chars, sizeof (struct Wc_pair));
-  xl->num = num_chars;
+  xl->dyn_num = num_chars;
+
+  /* Allocate special translation classes */
+  xl->spc = (struct Mb_special_translations*)
+    xcalloc (num_equiv_class + num_char_class,
+	     sizeof (struct Mb_special_translations));
+  xl->spc_num = num_equiv_class + num_char_class;
 }
 
 static int
@@ -2324,10 +2371,23 @@ mb_debug_print_translation (const struct Mb_translation *xl)
 	       (unsigned int)xl->fixed[i]);
 
   error (0,0, "  translation of other characters:");
-  for (i=0; i<xl->num; ++i)
+  for (i=0; i<xl->dyn_num; ++i)
     error (0,0, "    0x%x => 0x%x",
 	   (unsigned int)xl->dyn[i].from,
 	   (unsigned int)xl->dyn[i].to);
+
+  error (0,0, "  translation of special classes:");
+  for (i=0; i<xl->spc_num; ++i)
+    {
+      if (xl->spc[i].type == MBST_EQUIV_CODE)
+	error (0,0, "    [= %c =] => 0x%x",
+	       (char)xl->spc[i].from,
+	       (unsigned int)xl->spc[i].to);
+      else
+	error (0,0, "    [: %s :] => 0x%x",
+	       char_class_name[xl->spc[i].type],
+	       (unsigned int)xl->spc[i].to);
+    }
 }
 
 
@@ -2335,8 +2395,9 @@ static void
 mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
 		      struct Mb_translation /*out*/ *xl)
 {
+  enum Mb_translations_types type;
   wint_t c1, c2;
-  size_t idx = 0;
+  size_t dyn_idx = 0, spc_idx = 0;
 
   mb_init_translation (s1, s2, xl);
 
@@ -2344,8 +2405,8 @@ mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
   s2->state = BEGIN_STATE;
   while (true)
     {
-      c1 = mb_get_next (s1);
-      c2 = mb_get_next (s2);
+      c1 = mb_get_next (s1, &type);
+      c2 = mb_get_next (s2, NULL);
 
       if (c1 == -1 || c2 == -1)
 	break;
@@ -2357,15 +2418,25 @@ mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
       else
 	{
 	  /* if asserts, 'mb_init_translation' mis-calculated the size */
-	  assert (idx < xl->num);
-	  xl->dyn[idx].from = c1;
-	  xl->dyn[idx].to   = c2;
-	  ++idx;
+	  assert (dyn_idx < xl->dyn_num);
+	  xl->dyn[dyn_idx].from = c1;
+	  xl->dyn[dyn_idx].to   = c2;
+	  ++dyn_idx;
+	}
+
+      if (type != MBST_NONE)
+	{
+	  assert (spc_idx < xl->spc_num);
+	  xl->spc[spc_idx].type = type;
+	  xl->spc[spc_idx].to = c2 ;
+	  if (type == MBST_EQUIV_CODE)
+	    xl->spc[spc_idx].from = c1 ;
+	  ++spc_idx;
 	}
     }
 
   /* Sort the dynamic translation array, to make it easier to find characters */
-  qsort (xl->dyn, xl->num, sizeof (struct Wc_pair), sort_wc_pairs);
+  qsort (xl->dyn, xl->dyn_num, sizeof (struct Wc_pair), sort_wc_pairs);
 
   if (debug)
     mb_debug_print_translation (xl);
@@ -2377,13 +2448,14 @@ mb_translate_char (wchar_t wc, struct Mb_translation *xl)
 {
   struct Wc_pair *p;
   int f,l,m;
+  bool b;
 
   if (wc < 256)
     return xl->fixed[wc];
 
   /* Binary Search on the dynamic translation array */
   f = 0;
-  l = xl->num-1;
+  l = xl->dyn_num-1;
   m = l/2;
   while (f<=l) {
     p = (struct Wc_pair*) &xl->dyn[m];
@@ -2395,6 +2467,73 @@ mb_translate_char (wchar_t wc, struct Mb_translation *xl)
       l = m - 1;
     m = (f+l)/2;
   }
+
+  /* special translation classes */
+  for (size_t i = 0; i< xl->spc_num; ++i)
+    {
+      switch (xl->spc[i].type)
+	{
+	case MBST_ALNUM:
+	  b = iswalnum (wc);
+	  break;
+
+	case MBST_ALPHA:
+	  b = iswalpha (wc);
+	  break;
+
+	case MBST_BLANK:
+	  b = iswblank (wc);
+	  break;
+
+	case MBST_CNTRL:
+	  b = iswcntrl (wc);
+	  break;
+
+	case MBST_DIGIT:
+	  b = iswdigit (wc);
+	  break;
+
+	case MBST_GRAPH:
+	  b = iswgraph (wc);
+	  break;
+
+	case MBST_LOWER:
+	  b = iswlower (wc);
+	  break;
+
+	case MBST_PRINT:
+	  b = iswprint (wc);
+	  break;
+
+	case MBST_PUNCT:
+	  b = iswpunct (wc);
+	  break;
+
+	case MBST_SPACE:
+	  b = iswspace (wc);
+	  break;
+
+	case MBST_UPPER:
+	  b = iswupper (wc);
+	  break;
+
+	case MBST_XDIGIT:
+	  b = iswxdigit (wc);
+	  break;
+
+	case MBST_EQUIV_CODE:
+	  /* TODO: how to determine equivalent class? */
+	  b = (wc == xl->spc[i].from);
+	  break;
+
+	default:
+	  abort ();
+	}
+
+      if (b)
+	return xl->spc[i].to;
+    }
+
 
   /* Not found - return untranslated character */
   return wc;
