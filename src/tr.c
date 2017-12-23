@@ -100,7 +100,8 @@ enum Range_element_type
     RE_CHAR_CLASS,
     RE_EQUIV_CLASS,
     RE_REPEATED_CHAR,
-    RE_WIDE_CHAR
+    RE_WIDE_CHAR,
+    RE_REPEATED_WIDE_CHAR
   };
 
 /* One construct in one of tr's argument strings.
@@ -130,6 +131,12 @@ struct List_element
           }
         repeated_char;
 	wchar_t wide_char;
+        struct			/* unnamed */
+          {
+            wchar_t the_repeated_char;
+            count repeat_count;
+          }
+        repeated_wchar;
       }
     u;
   };
@@ -905,6 +912,21 @@ append_equiv_class (struct Spec_list *list,
   return true;
 }
 
+static void
+append_repeated_wchar (struct Spec_list *list, wchar_t the_char,
+                      count repeat_count)
+{
+  struct List_element *new = xmalloc (sizeof *new);
+  new->next = NULL;
+  new->type = RE_REPEATED_WIDE_CHAR;
+  new->u.repeated_wchar.the_repeated_char = the_char;
+  new->u.repeated_wchar.repeat_count = repeat_count;
+  assert (list->tail);
+  list->tail->next = new;
+  list->tail = new;
+}
+
+
 /* Search forward starting at START_IDX for the 2-char sequence
    (PRE_BRACKET_CHAR,']') in the string P of length P_LEN.  If such
    a sequence is found, set *RESULT_IDX to the index of the first
@@ -1258,6 +1280,19 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
       break;
 
     case RE_WIDE_CHAR:
+      /* TODO: 'get_next' is called in unibyte processing, there's
+	        no useable value to return here.
+	        It is probably better to skip this List_element
+		and return the next one.
+	 This case could happen if the user specified BOTH multibyte-characters
+	 and escaped octal sequences, which will force us to fallback to unibyte
+	 processing. */
+      return_val = 0xFF;
+      s->state = NEW_ELEMENT;
+      s->tail = p->next;
+      break;
+
+    case RE_REPEATED_WIDE_CHAR:
       /* TODO: 'get_next' is called in unibyte processing, there's
 	        no useable value to return here.
 	        It is probably better to skip this List_element
@@ -1650,6 +1685,13 @@ string2_extend (const struct Spec_list *s1, struct Spec_list *s2)
          if it finds an equiv class in string2 when translating.  */
       abort ();
 
+    case RE_WIDE_CHAR:
+      /* Ugly hack: don't fall thourgh to the default path of
+	 adding a unibyte repeated character */
+      append_repeated_wchar (s2, p->u.wide_char, s1->length - s2->length);
+      s2->length = s1->length;
+      return;
+
     default:
       abort ();
     }
@@ -1985,6 +2027,12 @@ debug_print_element_list (struct List_element *p)
     case RE_WIDE_CHAR:
       error (0,0,"    WIDE_CHAR: %zx", (uintmax_t)p->u.wide_char);
       break;
+
+    case RE_REPEATED_WIDE_CHAR:
+      error (0,0,"    REPEATED_WIDE_CHAR: %zx (repeated %"PRIuMAX" times)",
+	     (uintmax_t)p->u.repeated_wchar.the_repeated_char,
+	     p->u.repeated_wchar.repeat_count);
+      break;
     }
 }
 
@@ -2266,6 +2314,30 @@ mb_get_next (struct Spec_list *s, enum Mb_translations_types *type)
       return_val = p->u.equiv_code;
       s->state = NEW_ELEMENT;
       s->tail = p->next;
+      break;
+
+    case RE_REPEATED_WIDE_CHAR:
+      /* Here, a repeat count of n == 0 means don't repeat at all.  */
+      if (p->u.repeated_wchar.repeat_count == 0)
+        {
+          s->tail = p->next;
+          s->state = NEW_ELEMENT;
+          return_val = mb_get_next (s, type);
+        }
+      else
+        {
+          if (s->state == NEW_ELEMENT)
+            {
+              s->state = 0;
+            }
+          ++(s->state);
+          return_val = p->u.repeated_wchar.the_repeated_char;
+          if (s->state == p->u.repeated_wchar.repeat_count)
+            {
+              s->tail = p->next;
+              s->state = NEW_ELEMENT;
+            }
+        }
       break;
 
     case RE_REPEATED_CHAR:
