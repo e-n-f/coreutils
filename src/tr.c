@@ -257,6 +257,10 @@ struct Mb_translation
      e.g with iswupper(3) */
   struct Mb_special_translations *spc;
   size_t spc_num;
+
+  /* The character to return when complementing
+     wide characters */
+  wchar_t comp_char;
 };
 
 /* Return nonzero if the Ith character of escaped string ES matches C
@@ -2442,36 +2446,52 @@ mb_debug_print_translation (const struct Mb_translation *xl)
       error (0,0, "    0x%x => 0x%x", (unsigned int)i,
 	       (unsigned int)xl->fixed[i]);
 
-  error (0,0, "  translation of other characters:");
-  for (i=0; i<xl->dyn_num; ++i)
-    error (0,0, "    0x%x => 0x%x",
-	   (unsigned int)xl->dyn[i].from,
-	   (unsigned int)xl->dyn[i].to);
-
-  error (0,0, "  translation of special classes:");
-  for (i=0; i<xl->spc_num; ++i)
+  if (complement)
     {
-      if (xl->spc[i].type == MBST_EQUIV_CODE)
-	error (0,0, "    [= %c =] => 0x%x",
-	       (char)xl->spc[i].from,
-	       (unsigned int)xl->spc[i].to);
-      else
-	error (0,0, "    [: %s :] => 0x%x",
-	       char_class_name[xl->spc[i].type],
-	       (unsigned int)xl->spc[i].to);
+      error (0,0, "  complement-translation to char 0x%0x",
+	     (unsigned int)xl->comp_char);
+      error (0,0, "  for input NOT matching the following:");
+      for (i=0; i<xl->dyn_num; ++i)
+	error (0,0, "    0x%x", (unsigned int)xl->dyn[i].from);
+      for (i=0; i<xl->spc_num; ++i)
+	{
+	  if (xl->spc[i].type == MBST_EQUIV_CODE)
+	    error (0,0, "    [= %c =]", (char)xl->spc[i].from );
+	  else
+	    error (0,0, "    [: %s :]", char_class_name[xl->spc[i].type]);
+	}
+    }
+  else
+    {
+      error (0,0, "  translation of other characters:");
+      for (i=0; i<xl->dyn_num; ++i)
+	error (0,0, "    0x%x => 0x%x",
+	       (unsigned int)xl->dyn[i].from,
+	       (unsigned int)xl->dyn[i].to);
+
+      error (0,0, "  translation of special classes:");
+      for (i=0; i<xl->spc_num; ++i)
+	{
+	  if (xl->spc[i].type == MBST_EQUIV_CODE)
+	    error (0,0, "    [= %c =] => 0x%x",
+		   (char)xl->spc[i].from,
+		   (unsigned int)xl->spc[i].to);
+	  else
+	    error (0,0, "    [: %s :] => 0x%x",
+		   char_class_name[xl->spc[i].type],
+		   (unsigned int)xl->spc[i].to);
+	}
     }
 }
 
 
 static void
-mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
-		      struct Mb_translation /*out*/ *xl)
+mb_build_regular_translation (struct Spec_list *s1, struct Spec_list *s2,
+			      struct Mb_translation /*out*/ *xl)
 {
   enum Mb_translations_types type;
   wint_t c1, c2;
   size_t dyn_idx = 0, spc_idx = 0;
-
-  mb_init_translation (s1, s2, xl);
 
   s1->state = BEGIN_STATE;
   s2->state = BEGIN_STATE;
@@ -2495,7 +2515,6 @@ mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
 	  xl->dyn[dyn_idx].to   = c2;
 	  ++dyn_idx;
 	}
-
       if (type != MBST_NONE)
 	{
 	  assert (spc_idx < xl->spc_num);
@@ -2506,6 +2525,93 @@ mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
 	  ++spc_idx;
 	}
     }
+}
+
+static void
+mb_build_complement_translation (struct Spec_list *s1, struct Spec_list *s2,
+				 struct Mb_translation /*out*/ *xl)
+{
+  bool inset[N_CHARS];
+  enum Mb_translations_types type;
+  wint_t c1, c2, last_wc = (wchar_t)-1;
+  size_t dyn_idx = 0, spc_idx = 0;
+
+  memset (inset, 0, sizeof (inset));
+
+  /* First iteration: collect the characters
+     in the complement set */
+  s1->state = BEGIN_STATE;
+  while (true)
+    {
+      c1 = mb_get_next (s1, &type);
+      if (c1 == -1)
+	break;
+
+      if (c1<=0xFF)
+	{
+	  inset[c1] = 1;
+	}
+      else
+	{
+	  /* if asserts, 'mb_init_translation' mis-calculated the size */
+	  assert (dyn_idx < xl->dyn_num);
+	  xl->dyn[dyn_idx].from = c1;
+	  xl->dyn[dyn_idx].to   = (wchar_t)-1;
+	  ++dyn_idx;
+	}
+      if (type != MBST_NONE)
+	{
+	  assert (spc_idx < xl->spc_num);
+	  xl->spc[spc_idx].type = type;
+	  xl->spc[spc_idx].to = (wchar_t)-1 ;
+	  if (type == MBST_EQUIV_CODE)
+	    xl->spc[spc_idx].from = c1 ;
+	  ++spc_idx;
+	}
+    }
+
+  /* Second iteration: calculate the translation
+     of first 256 characters in the complement set */
+  s2->state = BEGIN_STATE;
+  for (int i = 0; i < N_CHARS; i++)
+    {
+      if (!inset[i])
+	{
+	  c2 = mb_get_next (s2, NULL);
+	  if (c2 == -1)
+	    {
+	      /* This will happen when tr is invoked like e.g.
+		 tr -cs A-Za-z0-9 '\012'.  */
+	      break;
+	    }
+	  xl->fixed[i] = c2;
+	}
+    }
+
+  /* Last iteration: find the last character in SET2,
+     which will be used as translation result for all
+     complemented wide characters */
+  s2->state = BEGIN_STATE;
+  while (true)
+    {
+      c2 = mb_get_next (s2, NULL);
+      if (c2 == -1)
+	break;
+      last_wc = c2;
+    }
+  xl->comp_char = last_wc;
+}
+
+static void
+mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
+		      struct Mb_translation /*out*/ *xl)
+{
+  mb_init_translation (s1, s2, xl);
+
+  if (complement)
+    mb_build_complement_translation (s1, s2, xl);
+  else
+    mb_build_regular_translation (s1, s2, xl);
 
   /* Sort the dynamic translation array, to make it easier to find characters */
   qsort (xl->dyn, xl->dyn_num, sizeof (struct Wc_pair), sort_wc_pairs);
@@ -2515,15 +2621,11 @@ mb_build_translation (struct Spec_list *s1, struct Spec_list *s2,
 }
 
 
-static wchar_t
-mb_translate_char (wchar_t wc, struct Mb_translation *xl)
+static int _GL_ATTRIBUTE_PURE
+mb_find_dyn (wchar_t wc, const struct Mb_translation *xl)
 {
   struct Wc_pair *p;
   int f,l,m;
-  bool b;
-
-  if (wc < 256)
-    return xl->fixed[wc];
 
   /* Binary Search on the dynamic translation array */
   f = 0;
@@ -2532,7 +2634,7 @@ mb_translate_char (wchar_t wc, struct Mb_translation *xl)
   while (f<=l) {
     p = (struct Wc_pair*) &xl->dyn[m];
     if (p->from == wc)
-      return p->to;
+      return m;
     else if (p->from < wc)
       f = m + 1;
     else
@@ -2540,69 +2642,97 @@ mb_translate_char (wchar_t wc, struct Mb_translation *xl)
     m = (f+l)/2;
   }
 
-  /* special translation classes */
-  for (size_t i = 0; i< xl->spc_num; ++i)
+  return -1;
+}
+
+static bool _GL_ATTRIBUTE_PURE
+mb_match_class (wchar_t wc, const struct Mb_special_translations *st)
+{
+  bool b;
+
+  switch (st->type)
     {
-      switch (xl->spc[i].type)
-	{
-	case MBST_ALNUM:
-	  b = iswalnum (wc);
-	  break;
+    case MBST_ALNUM:
+      b = iswalnum (wc);
+      break;
 
-	case MBST_ALPHA:
-	  b = iswalpha (wc);
-	  break;
+    case MBST_ALPHA:
+      b = iswalpha (wc);
+      break;
 
-	case MBST_BLANK:
-	  b = iswblank (wc);
-	  break;
+    case MBST_BLANK:
+      b = iswblank (wc);
+      break;
 
-	case MBST_CNTRL:
-	  b = iswcntrl (wc);
-	  break;
+    case MBST_CNTRL:
+      b = iswcntrl (wc);
+      break;
 
-	case MBST_DIGIT:
-	  b = iswdigit (wc);
-	  break;
+    case MBST_DIGIT:
+      b = iswdigit (wc);
+      break;
 
-	case MBST_GRAPH:
-	  b = iswgraph (wc);
-	  break;
+    case MBST_GRAPH:
+      b = iswgraph (wc);
+      break;
 
-	case MBST_LOWER:
-	  b = iswlower (wc);
-	  break;
+    case MBST_LOWER:
+      b = iswlower (wc);
+      break;
 
-	case MBST_PRINT:
-	  b = iswprint (wc);
-	  break;
+    case MBST_PRINT:
+      b = iswprint (wc);
+      break;
 
-	case MBST_PUNCT:
-	  b = iswpunct (wc);
-	  break;
+    case MBST_PUNCT:
+      b = iswpunct (wc);
+      break;
 
-	case MBST_SPACE:
-	  b = iswspace (wc);
-	  break;
+    case MBST_SPACE:
+      b = iswspace (wc);
+      break;
 
-	case MBST_UPPER:
-	  b = iswupper (wc);
-	  break;
+    case MBST_UPPER:
+      b = iswupper (wc);
+      break;
 
-	case MBST_XDIGIT:
-	  b = iswxdigit (wc);
-	  break;
+    case MBST_XDIGIT:
+      b = iswxdigit (wc);
+      break;
 
-	case MBST_EQUIV_CODE:
-	  /* TODO: how to determine equivalent class? */
-	  b = (wc == xl->spc[i].from);
-	  break;
+    case MBST_EQUIV_CODE:
+      /* TODO: how to determine equivalent class? */
+      b = (wc == st->from);
+      break;
 
-	default:
-	  abort ();
-	}
+    default:
+      abort ();
+    }
 
-      if (b)
+  return b;
+}
+
+
+
+static wchar_t _GL_ATTRIBUTE_PURE
+mb_translate_char (wchar_t wc, struct Mb_translation *xl)
+{
+  int i;
+
+  /* First step: check the easy 256 first characters */
+  if (wc < 256)
+    return xl->fixed[wc];
+
+  /* Second: search for explicit wide characters in the dynamic array */
+  i = mb_find_dyn (wc, xl);
+  if (i != -1)
+    return xl->dyn[i].to;
+
+
+  /* Lastly, compare against special classes (e.g. [:alpha:]) */
+  for (i = 0; i< xl->spc_num; ++i)
+    {
+      if (mb_match_class (wc, &xl->spc[i]))
 	return xl->spc[i].to;
     }
 
@@ -2610,6 +2740,33 @@ mb_translate_char (wchar_t wc, struct Mb_translation *xl)
   /* Not found - return untranslated character */
   return wc;
 }
+
+
+static wchar_t _GL_ATTRIBUTE_PURE
+mb_translate_complement_char (wchar_t wc, struct Mb_translation *xl)
+{
+  /* First step: check the easy 256 first characters.
+     The 'fixed' array is already complemented (prepared
+     in mb_build_complement_translation() )*/
+  if (wc < 256)
+    return xl->fixed[wc];
+
+  /* Second: search for explicit wide characters in the dynamic array.
+     If there is a match, the input character should NOT be translated.*/
+  if (mb_find_dyn (wc, xl) != -1)
+    return wc;
+
+  /* Lastly, compare against special classes (e.g. [:alpha:]).
+     If it matches, the input character should NOT be translated. */
+  for (int i = 0; i< xl->spc_num; ++i)
+    if (mb_match_class (wc, &xl->spc[i]))
+      return wc;
+
+  /* Not found - the character is not in SET1, (i.e. matches the complement
+     of SET1 - translate it */
+  return xl->comp_char;
+}
+
 
 
 /* The main loop for multibyte-aware processing. */
@@ -2654,7 +2811,7 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
       if (squeeze_repeats)
 	{
 	  squeeze_set = s2;
-	  set_initialize (s2, false, in_squeeze_set);
+	  set_initialize (s2, complement, in_squeeze_set);
 	}
 
       /* Upper/lower translation. POSIX puts special restrictions
@@ -2705,7 +2862,9 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
 	      if (to_lower && out_wc == mbb.wc)
 		out_wc = towlower (mbb.wc);
 
-	      out_wc = mb_translate_char (mbb.wc, &mb_xlate);
+	      out_wc = (complement)
+		? mb_translate_complement_char (mbb.wc, &mb_xlate)
+		: mb_translate_char (mbb.wc, &mb_xlate);
 	    }
 
 	  if (squeeze_repeats && (last_wc != -1) && (last_wc == out_wc)
