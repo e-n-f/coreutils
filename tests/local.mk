@@ -415,6 +415,7 @@ all_tests =					\
   tests/misc/timeout-group.sh			\
   tests/misc/timeout-parameters.sh		\
   tests/misc/tr.pl				\
+  tests/misc/tr-multibyte.pl			\
   tests/misc/tr-case-class.sh			\
   tests/misc/truncate-dangling-symlink.sh	\
   tests/misc/truncate-dir-fail.sh		\
