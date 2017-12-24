@@ -2862,9 +2862,12 @@ tr_multibyte (struct Spec_list *s1, struct Spec_list *s2)
 	      if (to_lower && out_wc == mbb.wc)
 		out_wc = towlower (mbb.wc);
 
-	      out_wc = (complement)
-		? mb_translate_complement_char (mbb.wc, &mb_xlate)
-		: mb_translate_char (mbb.wc, &mb_xlate);
+	      if (!to_upper && !to_lower)
+		{
+		  out_wc = (complement)
+		    ? mb_translate_complement_char (mbb.wc, &mb_xlate)
+		    : mb_translate_char (mbb.wc, &mb_xlate);
+		}
 	    }
 
 	  if (squeeze_repeats && (last_wc != -1) && (last_wc == out_wc)
