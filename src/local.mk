@@ -383,7 +383,8 @@ src_stat_SOURCES = src/stat.c src/find-mount-point.c
 src_uname_SOURCES = src/uname.c src/uname-uname.c
 src_arch_SOURCES = src/uname.c src/uname-arch.c
 
-src_cut_SOURCES = src/cut.c src/set-fields.c
+src_cut_SOURCES = src/cut.c src/set-fields.c src/multibyte.c
+src_paste_SOURCES = src/paste.c src/multibyte.c
 src_numfmt_SOURCES = src/numfmt.c src/set-fields.c
 
 src_md5sum_CPPFLAGS = -DHASH_ALGO_MD5=1 $(AM_CPPFLAGS)

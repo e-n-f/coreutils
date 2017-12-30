@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <wchar.h>
 #include <errno.h>
+#include <stdbool.h>
+#include <limits.h>
 
 #include "gettext.h"
 #define _(msgid) gettext (msgid)
@@ -16,6 +18,13 @@
 #include "exitfail.h"
 #include "quotearg.h"
 #include "quote.h"
+
+/* Use this to suppress gcc's "...may be used before initialized" warnings. */
+#if defined GCC_LINT || defined lint
+# define IF_LINT(Code) Code
+#else
+# define IF_LINT(Code) /* empty */
+#endif
 
 /**** Wide version of linebuffer.c */
 
@@ -211,4 +220,156 @@ xwcsndup (const wchar_t *string, size_t n)
   wcsncpy(s, string, n);
   s[n] = L'\0';
   return s;
+}
+
+/**** Wide version of getndelim2.c */
+
+/* The maximum value that getndelim2 can return without suffering from
+   overflow problems, either internally (because of pointer
+   subtraction overflow) or due to the API (because of ssize_t).  */
+#define GETNDELIM2_MAXIMUM (PTRDIFF_MAX < SSIZE_MAX ? PTRDIFF_MAX : SSIZE_MAX)
+
+/* Try to add at least this many bytes when extending the buffer.
+   MIN_CHUNK must be no greater than GETNDELIM2_MAXIMUM.  */
+#define MIN_CHUNK 64
+
+ssize_t
+wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
+            wchar_t delim1, wchar_t delim2, FILE *stream)
+{
+  size_t nbytes_avail;          /* Allocated but unused bytes in *LINEPTR.  */
+  wchar_t *read_pos;               /* Where we're reading into *LINEPTR. */
+  ssize_t bytes_stored = -1;
+  wchar_t *ptr = *lineptr;
+  size_t size = *linesize;
+  bool found_delimiter;
+
+  if (!ptr)
+    {
+      size = nmax < MIN_CHUNK ? nmax : MIN_CHUNK;
+      ptr = malloc (size * sizeof(wchar_t));
+      if (!ptr)
+        return -1;
+    }
+
+  if (size < offset)
+    goto done;
+
+  nbytes_avail = size - offset;
+  read_pos = ptr + offset;
+
+  if (nbytes_avail == 0 && nmax <= size)
+    goto done;
+
+  /* Normalize delimiters, since memchr2 doesn't handle EOF.  */
+  if (delim1 == WEOF)
+    delim1 = delim2;
+  else if (delim2 == WEOF)
+    delim2 = delim1;
+
+  flockfile (stream);
+
+  found_delimiter = false;
+  do
+    {
+      /* Here always ptr + size == read_pos + nbytes_avail.
+         Also nbytes_avail > 0 || size < nmax.  */
+
+      wint_t c IF_LINT (= 0);
+      const wchar_t *buffer;
+      size_t buffer_len;
+
+      buffer = NULL;
+      if (true)
+        {
+          c = getwc (stream);
+          if (c == EOF)
+            {
+              /* Return partial line, if any.  */
+              if (read_pos == ptr)
+                goto unlock_done;
+              else
+                break;
+            }
+          if (c == delim1 || c == delim2)
+            found_delimiter = true;
+          buffer_len = 1;
+        }
+
+      /* We always want at least one byte left in the buffer, since we
+         always (unless we get an error while reading the first byte)
+         NUL-terminate the line buffer.  */
+
+      if (nbytes_avail < buffer_len + 1 && size < nmax)
+        {
+          /* Grow size proportionally, not linearly, to avoid O(n^2)
+             running time.  */
+          size_t newsize = size < MIN_CHUNK ? size + MIN_CHUNK : 2 * size;
+          wchar_t *newptr;
+
+          /* Increase newsize so that it becomes
+             >= (read_pos - ptr) + buffer_len.  */
+          if (newsize - (read_pos - ptr) < buffer_len + 1)
+            newsize = (read_pos - ptr) + buffer_len + 1;
+          /* Respect nmax.  This handles possible integer overflow.  */
+          if (! (size < newsize && newsize <= nmax))
+            newsize = nmax;
+
+          if (GETNDELIM2_MAXIMUM < newsize - offset)
+            {
+              size_t newsizemax = offset + GETNDELIM2_MAXIMUM + 1;
+              if (size == newsizemax)
+                goto unlock_done;
+              newsize = newsizemax;
+            }
+
+          nbytes_avail = newsize - (read_pos - ptr);
+          newptr = realloc (ptr, newsize * sizeof(wchar_t));
+          if (!newptr)
+            goto unlock_done;
+          ptr = newptr;
+          size = newsize;
+          read_pos = size - nbytes_avail + ptr;
+        }
+
+      /* Here, if size < nmax, nbytes_avail >= buffer_len + 1.
+         If size == nmax, nbytes_avail > 0.  */
+
+      if (1 < nbytes_avail)
+        {
+          size_t copy_len = nbytes_avail - 1;
+          if (buffer_len < copy_len)
+            copy_len = buffer_len;
+          *read_pos = c;
+          read_pos += copy_len;
+          nbytes_avail -= copy_len;
+        }
+
+      /* Here still nbytes_avail > 0.  */
+    }
+  while (!found_delimiter);
+
+  /* Done - NUL terminate and return the number of bytes read.
+     At this point we know that nbytes_avail >= 1.  */
+  *read_pos = '\0';
+
+  bytes_stored = read_pos - (ptr + offset);
+
+ unlock_done:
+  funlockfile (stream);
+
+ done:
+  *lineptr = ptr;
+  *linesize = size;
+  return bytes_stored ? bytes_stored : -1;
+}
+
+/**** Wide version of xmalloc.c */
+
+/* Clone STRING.  */
+
+wchar_t *
+xwcsdup (wchar_t const *string)
+{
+  return xmemdup (string, (wcslen(string) + 1) * sizeof(wchar_t));
 }

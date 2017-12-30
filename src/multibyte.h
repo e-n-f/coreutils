@@ -33,4 +33,9 @@ const char *wquote (const wchar_t *s);
 
 extern wchar_t *xwcsndup (const wchar_t *string, size_t n);
 
+ssize_t wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
+                     wchar_t delim1, wchar_t delim2, FILE *stream);
+
+wchar_t *xwcsdup (wchar_t const *string);
+
 #endif
