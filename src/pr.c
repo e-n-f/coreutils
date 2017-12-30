@@ -431,7 +431,7 @@ static void pad_across_to (int position);
 static void add_line_number (COLUMN *p);
 static void getoptnum (const char *n_str, int min, int *num,
                        const char *errfmt);
-static void getoptarg (char *arg, char switch_char, wchar_t *character,
+static void getoptarg (const char *arg, char switch_char, wchar_t *character,
                        int *number);
 static void print_files (int number_of_files, char **av);
 static void init_parameters (int number_of_files);
@@ -1166,18 +1166,6 @@ getoptnum (const char *n_str, int min, int *num, const char *err)
   *num = tnum;
 }
 
-static inline size_t
-mbrtowc0(wchar_t *c, char *s, size_t count, mbstate_t *state)
-{
-  size_t ret = mbrtowc(c, s, count, state);
-  if (ret == 0)
-    {
-      *c = L'\0';
-      ret = 1;
-    }
-  return ret;
-}
-
 /* Parse options of the form -scNNN.
 
    Example: -nck, where 'n' is the option, c is the optional number
@@ -1185,20 +1173,15 @@ mbrtowc0(wchar_t *c, char *s, size_t count, mbstate_t *state)
    a number. */
 
 static void
-getoptarg (char *arg, char switch_char, wchar_t *character, int *number)
+getoptarg (const char *arg, char switch_char, wchar_t *character, int *number)
 {
-  if (!ISDIGIT (*arg))
+  if (*arg && !ISDIGIT (*arg))
     {
-      size_t count;
       wchar_t c;
       mbstate_t mbs = { 0 };
-      count = mbrtowc0(&c, arg, strlen(arg), &mbs);
-      if (count == (size_t) -1 || count == (size_t) -2)
-        {
-          die (EXIT_FAILURE, errno, _("text conversion: %s"), quote(arg));
-        }
+      if (mbrnext0(&c, &arg, arg + strlen(arg), &mbs) != MB_OK)
+        die (EXIT_FAILURE, errno, _("text conversion: %s"), quote(arg));
       *character = c;
-      arg += count;
     }
   if (*arg)
     {
