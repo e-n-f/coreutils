@@ -373,3 +373,305 @@ xwcsdup (wchar_t const *string)
 {
   return xmemdup (string, (wcslen(string) + 1) * sizeof(wchar_t));
 }
+
+
+/**** Character iterators */
+
+mb_error
+mbrnext0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
+{
+  if (s == NULL)
+    {
+      *c = L'\0';
+      return MB_ERROR;
+    }
+  if (*s >= end)
+    {
+      *c = L'\0';
+      return MB_EOF;
+    }
+
+  mbstate_t st2 = *state;
+  size_t ret = mbrtowc(c, *s, end - *s, &st2);
+  if (ret == 0)
+    {
+      // Success, but NUL
+
+      if (**s != '\0')
+        {
+          // The next byte is not NUL. Is this possible in a legitimate
+          // multibyte charset? In any case, if it happens, return an
+          // error instead, since we don't know how to advance over it.
+
+          return MB_ERROR;
+        }
+
+      // Advance text pointer and state
+      (*s)++;
+      *c = L'\0';
+      *state = st2;
+      return MB_OK;
+    }
+  else if (ret == (size_t) -1)
+    {
+      // Error
+      // Text pointer and state do not advance
+      *c = L'\0';
+      return MB_ERROR;
+    }
+  else if (ret == (size_t) -2)
+    {
+      // Incomplete multibyte character
+      // Text pointer and state do not advance
+      *c = L'\0';
+      return MB_INCOMPLETE;
+    }
+  else
+    {
+      (*s) += ret;
+      *state = st2;
+      return MB_OK;
+    }
+}
+
+mb_error
+mbrpeek0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
+{
+  const char *ostring = *s;
+  mbstate_t ostate = *state;
+
+  return mbrnext0(c, &ostring, end, &ostate);
+}
+
+mb_error
+mbrafter0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
+{
+  // TODO: callers are relying on seeing L'\0' when calling with *s == end
+  // Is this a good thing to guarantee?
+
+  mbrnext0(c, s, end, state);
+  return mbrpeek0(c, s, end, state);
+}
+
+/**** Wide version of lib/strnumcmp-in.h */
+
+# define WNEGATION_SIGN   L'-'
+# define WNUMERIC_ZERO    L'0'
+
+static inline int
+ISWDIGIT(wchar_t c)
+{
+  return c >= L'0' && c - L'0' <= 9;
+}
+
+static inline int _GL_ATTRIBUTE_PURE
+wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbsa, mbstate_t *mbsb)
+{
+  wchar_t ca, cb;
+  const char *aend = a + strlen(a);
+  const char *bend = b + strlen(b);
+
+  mbrpeek0(&ca, &a, aend, mbsa);
+  mbrpeek0(&cb, &b, bend, mbsb);
+
+  if (ca == decimal_point && cb == decimal_point)
+    {
+      while (1)
+        {
+          mbrnext0(&ca, &a, aend, mbsa);
+          mbrnext0(&cb, &b, bend, mbsb);
+
+          if (ca != cb)
+            break;
+
+          mbrpeek0(&ca, &a, aend, mbsa);
+          mbrpeek0(&cb, &b, bend, mbsb);
+
+          if (!ISWDIGIT(ca))
+            return 0;
+
+          if (ISWDIGIT (ca) && ISWDIGIT (ca))
+            return ca - cb;
+
+          if (ISWDIGIT (ca))
+            goto a_trailing_nonzero;
+          if (ISWDIGIT (cb))
+            goto b_trailing_nonzero;
+
+          return 0;
+        }
+    }
+  else if (ca == decimal_point)
+    {
+      mbrnext0(&ca, &a, aend, mbsa);
+    a_trailing_nonzero:
+      for (; mbrpeek0(&ca, &a, aend, mbsa) == MB_OK; mbrnext0(&ca, &a, aend, mbsa))
+        {
+          if (ca != WNUMERIC_ZERO)
+            break;
+        }
+
+      mbrnext0(&ca, &a, aend, mbsa);
+      return ISWDIGIT (ca);
+    }
+  else if (*b++ == decimal_point)
+    {
+      mbrnext0(&cb, &b, bend, mbsb);
+    b_trailing_nonzero:
+      for (; mbrpeek0(&cb, &b, bend, mbsb) == MB_OK; mbrnext0(&cb, &b, bend, mbsb))
+        {
+          if (cb != WNUMERIC_ZERO)
+            break;
+        }
+
+      mbrnext0(&cb, &b, bend, mbsb);
+      return ISWDIGIT (cb);
+    }
+  return 0;
+}
+
+static inline int _GL_ATTRIBUTE_PURE
+wnumcompare (char const *a, char const *b,
+            wint_t decimal_point, wint_t thousands_sep)
+{
+  wint_t tmp;
+  size_t log_a;
+  size_t log_b;
+
+  wchar_t tmpa, tmpb;
+  const char *aend = a + strlen(a), *bend = b + strlen(b);
+  mbstate_t mbsa = { 0 }, mbsb = { 0 };
+
+  mbrpeek0(&tmpa, &a, aend, &mbsa);
+  mbrpeek0(&tmpb, &b, bend, &mbsb);
+
+  if (tmpa == WNEGATION_SIGN)
+    {
+      do
+        mbrafter0(&tmpa, &a, aend, &mbsa);
+      while (tmpa == WNUMERIC_ZERO || tmpa == thousands_sep);
+      if (tmpb != WNEGATION_SIGN)
+        {
+          if (tmpa == decimal_point)
+            do
+              mbrafter0(&tmpa, &a, aend, &mbsa);
+            while (tmpa == WNUMERIC_ZERO);
+          if (ISWDIGIT (tmpa))
+            return -1;
+          while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep)
+            mbrafter0(&tmpb, &b, bend, &mbsb);
+          if (tmpb == decimal_point)
+            do
+              mbrafter0(&tmpb, &b, bend, &mbsb);
+            while (tmpb == WNUMERIC_ZERO);
+          return - ISWDIGIT (tmpb);
+        }
+      do
+        mbrafter0(&tmpb, &b, bend, &mbsb);
+      while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep);
+
+      while (tmpa == tmpb && ISWDIGIT (tmpa))
+        {
+          do
+            mbrafter0(&tmpa, &a, aend, &mbsa);
+          while (tmpa == thousands_sep);
+          do
+            mbrafter0(&tmpb, &b, bend, &mbsb);
+          while (tmpb == thousands_sep);
+        }
+
+      if ((tmpa == decimal_point && !ISWDIGIT (tmpb))
+          || (tmpb == decimal_point && !ISWDIGIT (tmpa)))
+        return wfraccompare (b, a, decimal_point, &mbsb, &mbsa);
+
+      tmp = tmpb - tmpa;
+
+      for (log_a = 0; ISWDIGIT (tmpa); ++log_a)
+        do
+          mbrafter0(&tmpa, &a, aend, &mbsa);
+        while (tmpa == thousands_sep);
+
+      for (log_b = 0; ISWDIGIT (tmpb); ++log_b)
+        do
+          mbrafter0(&tmpb, &b, bend, &mbsb);
+        while (tmpb == thousands_sep);
+
+      if (log_a != log_b)
+        return log_a < log_b ? 1 : -1;
+
+      if (!log_a)
+        return 0;
+
+      return tmp;
+    }
+  else if (tmpb == WNEGATION_SIGN)
+    {
+      do
+        mbrafter0(&tmpb, &b, bend, &mbsb);
+      while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep);
+      if (tmpb == decimal_point)
+        do
+          mbrafter0(&tmpb, &b, bend, &mbsb);
+        while (tmpb == WNUMERIC_ZERO);
+      if (ISWDIGIT (tmpb))
+        return 1;
+      while (tmpa == WNUMERIC_ZERO || tmpa == thousands_sep)
+        mbrafter0(&tmpa, &a, aend, &mbsa);
+      if (tmpa == decimal_point)
+        do
+          mbrafter0(&tmpa, &a, aend, &mbsa);
+        while (tmpa == WNUMERIC_ZERO);
+      return ISWDIGIT (tmpa);
+    }
+  else
+    {
+      while (tmpa == WNUMERIC_ZERO || tmpa == thousands_sep)
+        mbrafter0(&tmpa, &a, aend, &mbsa);
+      while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep)
+        mbrafter0(&tmpb, &b, bend, &mbsb);
+
+      while (tmpa == tmpb && ISWDIGIT (tmpa))
+        {
+          do
+            mbrafter0(&tmpa, &a, aend, &mbsa);
+          while (tmpa == thousands_sep);
+          do
+            mbrafter0(&tmpb, &b, bend, &mbsb);
+          while (tmpb == thousands_sep);
+        }
+
+      if ((tmpa == decimal_point && !ISWDIGIT (tmpb))
+          || (tmpb == decimal_point && !ISWDIGIT (tmpa)))
+        return wfraccompare (a, b, decimal_point, &mbsa, &mbsb);
+
+      tmp = tmpa - tmpb;
+
+      for (log_a = 0; ISWDIGIT (tmpa); ++log_a)
+        do
+          mbrafter0(&tmpa, &a, aend, &mbsa);
+        while (tmpa == thousands_sep);
+
+      for (log_b = 0; ISWDIGIT (tmpb); ++log_b)
+        do
+          mbrafter0(&tmpb, &b, bend, &mbsb);
+        while (tmpb == thousands_sep);
+
+      if (log_a != log_b)
+        return log_a < log_b ? -1 : 1;
+
+      if (!log_a)
+        return 0;
+
+      return tmp;
+    }
+}
+
+
+/**** Wide version of strnumcmp.c */
+
+int _GL_ATTRIBUTE_PURE
+wstrnumcmp (char const *a, char const *b,
+           wint_t decimal_point, wint_t thousands_sep)
+{
+  return wnumcompare (a, b, decimal_point, thousands_sep);
+}

@@ -388,6 +388,7 @@ src_paste_SOURCES = src/paste.c src/multibyte.c
 src_pr_SOURCES = src/pr.c src/multibyte.c
 src_join_SOURCES = src/join.c src/multibyte.c
 src_tr_SOURCES = src/tr.c src/multibyte.c
+src_sort_SOURCES = src/sort.c src/multibyte.c
 
 src_numfmt_SOURCES = src/numfmt.c src/set-fields.c
 

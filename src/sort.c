@@ -12,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
    Written December 1988 by Mike Haertel.
    The author may be reached (Email) at the address mike@gnu.ai.mit.edu,
@@ -29,6 +29,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <assert.h>
+#include <wchar.h>
+#include <wctype.h>
 #include "system.h"
 #include "argmatch.h"
 #include "die.h"
@@ -53,6 +55,7 @@
 #include "xmemcoll.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
+#include "multibyte.h"
 
 #ifndef RLIMIT_DATA
 struct rlimit { size_t rlim_cur; };
@@ -64,7 +67,8 @@ struct rlimit { size_t rlim_cur; };
 
 #define AUTHORS \
   proper_name ("Mike Haertel"), \
-  proper_name ("Paul Eggert")
+  proper_name ("Paul Eggert"), \
+  proper_name ("Eric Fischer")
 
 #if HAVE_LANGINFO_CODESET
 # include <langinfo.h>
@@ -164,10 +168,10 @@ enum
   };
 
 /* The representation of the decimal point in the current locale.  */
-static int decimal_point;
+static wint_t decimal_point;
 
-/* Thousands separator; if -1, then there isn't one.  */
-static int thousands_sep;
+/* Thousands separator; if WEOF, then there isn't one.  */
+static wint_t thousands_sep;
 
 /* Nonzero if the corresponding locales are hard.  */
 static bool hard_LC_COLLATE;
@@ -215,8 +219,8 @@ struct keyfield
   size_t schar;			/* Additional characters to skip. */
   size_t eword;			/* Zero-origin last 'word' of key. */
   size_t echar;			/* Additional characters in field. */
-  bool const *ignore;		/* Boolean array of characters to ignore. */
-  char const *translate;	/* Translation applied to characters. */
+  bool (*ignore)(wchar_t);	/* Boolean array of characters to ignore. */
+  wchar_t (*translate)(wchar_t);	/* Translation applied to characters. */
   bool skipsblanks;		/* Skip leading blanks when finding start.  */
   bool skipeblanks;		/* Skip leading blanks when finding end.  */
   bool numeric;			/* Flag for numeric comparison.  Handle
@@ -236,7 +240,7 @@ struct keyfield
 
 struct month
 {
-  char const *name;
+  wchar_t const *name;
   int val;
 };
 
@@ -277,16 +281,16 @@ static struct line saved_line;
    tricky.  */
 
 /* Table of blanks.  */
-static bool blanks[UCHAR_LIM];
+static bool blanks(wchar_t);
 
 /* Table of non-printing characters. */
-static bool nonprinting[UCHAR_LIM];
+static bool nonprinting(wchar_t);
 
 /* Table of non-dictionary characters (not letters, digits, or blanks). */
-static bool nondictionary[UCHAR_LIM];
+static bool nondictionary(wchar_t);
 
 /* Translation table folding lower case to upper.  */
-static char fold_toupper[UCHAR_LIM];
+static wchar_t fold_toupper(wchar_t);
 
 #define MONTHS_PER_YEAR 12
 
@@ -294,18 +298,18 @@ static char fold_toupper[UCHAR_LIM];
    Alphabetic order allows binary search. */
 static struct month monthtab[] =
 {
-  {"APR", 4},
-  {"AUG", 8},
-  {"DEC", 12},
-  {"FEB", 2},
-  {"JAN", 1},
-  {"JUL", 7},
-  {"JUN", 6},
-  {"MAR", 3},
-  {"MAY", 5},
-  {"NOV", 11},
-  {"OCT", 10},
-  {"SEP", 9}
+  {L"APR", 4},
+  {L"AUG", 8},
+  {L"DEC", 12},
+  {L"FEB", 2},
+  {L"JAN", 1},
+  {L"JUL", 7},
+  {L"JUN", 6},
+  {L"MAR", 3},
+  {L"MAY", 5},
+  {L"NOV", 11},
+  {L"OCT", 10},
+  {L"SEP", 9}
 };
 
 /* During the merge phase, the number of files to merge at once. */
@@ -351,12 +355,12 @@ static bool reverse;
 static bool stable;
 
 /* If TAB has this value, blanks separate fields.  */
-enum { TAB_DEFAULT = CHAR_MAX + 1 };
+#define TAB_DEFAULT WEOF
 
 /* Tab character separating fields.  If TAB_DEFAULT, then fields are
    separated by the empty string between a non-blank character and a blank
    character. */
-static int tab = TAB_DEFAULT;
+static wint_t tab = TAB_DEFAULT;
 
 /* Flag to remove consecutive duplicate lines from the output.
    Only the last of a sequence of equal lines will be output. */
@@ -1271,10 +1275,34 @@ struct_month_cmp (void const *m1, void const *m2)
 {
   struct month const *month1 = m1;
   struct month const *month2 = m2;
-  return strcmp (month1->name, month2->name);
+  return wcscmp (month1->name, month2->name);
 }
 
 #endif
+
+static bool
+blanks(wchar_t c)
+{
+  return wfield_sep (c);
+}
+
+static bool
+nonprinting(wchar_t c)
+{
+  return ! iswprint(c);
+}
+
+static bool
+nondictionary(wchar_t c)
+{
+  return ! iswalnum (c) && ! wfield_sep (c);
+}
+
+static wchar_t
+fold_toupper(wchar_t c)
+{
+  return towupper(c);
+}
 
 /* Initialize the character class tables. */
 
@@ -1283,14 +1311,6 @@ inittables (void)
 {
   size_t i;
 
-  for (i = 0; i < UCHAR_LIM; ++i)
-    {
-      blanks[i] = field_sep (i);
-      nonprinting[i] = ! isprint (i);
-      nondictionary[i] = ! isalnum (i) && ! field_sep (i);
-      fold_toupper[i] = toupper (i);
-    }
-
 #if HAVE_NL_LANGINFO
   /* If we're not in the "C" locale, read different names for months.  */
   if (hard_LC_TIME)
@@ -1298,19 +1318,20 @@ inittables (void)
       for (i = 0; i < MONTHS_PER_YEAR; i++)
         {
           char const *s;
-          size_t s_len;
-          size_t j, k;
-          char *name;
 
           s = nl_langinfo (ABMON_1 + i);
-          s_len = strlen (s);
-          monthtab[i].name = name = xmalloc (s_len + 1);
-          monthtab[i].val = i + 1;
+          wchar_t tmp[strlen(s) + 1];
+          if (mbstowcs(tmp, s, strlen(s) + 1) == (size_t) -1)
+            error (0, errno, _("invalid month name %s"), s);
 
-          for (j = k = 0; j < s_len; j++)
-            if (! isblank (to_uchar (s[j])))
-              name[k++] = fold_toupper[to_uchar (s[j])];
-          name[k] = '\0';
+          size_t out = 0;
+          for (size_t i = 0; tmp[i] != L'\0'; i++)
+            if (! iswblank (tmp[i]))
+              tmp[out++] = towupper (tmp[i]);
+          tmp[out] = L'\0';
+
+          monthtab[i].name = xwcsdup(tmp);
+          monthtab[i].val = i + 1;
         }
       qsort (monthtab, MONTHS_PER_YEAR, sizeof *monthtab, struct_month_cmp);
     }
@@ -1606,9 +1627,11 @@ buffer_linelim (struct buffer const *buf)
 static char *
 begfield (struct line const *line, struct keyfield const *key)
 {
-  char *ptr = line->text, *lim = ptr + line->length - 1;
+  const char *ptr = line->text, *lim = ptr + line->length - 1;
   size_t sword = key->sword;
   size_t schar = key->schar;
+  mbstate_t mbs = { 0 };
+  wchar_t c;
 
   /* The leading field separator itself is included in a field when -t
      is absent.  */
@@ -1616,30 +1639,57 @@ begfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && sword--)
       {
-        while (ptr < lim && *ptr != tab)
-          ++ptr;
-        if (ptr < lim)
-          ++ptr;
+        for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+          {
+            if (c == tab)
+              {
+                // Skip over the tab
+                mbrnext0(&c, &ptr, lim, &mbs);
+                break;
+              }
+          }
+
+        // Advance over the tab
       }
   else
     while (ptr < lim && sword--)
       {
-        while (ptr < lim && blanks[to_uchar (*ptr)])
-          ++ptr;
-        while (ptr < lim && !blanks[to_uchar (*ptr)])
-          ++ptr;
+        for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+          {
+            if (!blanks(c))
+              break;
+          }
+
+        for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+          {
+            if (blanks(c))
+              break;
+          }
       }
 
   /* If we're ignoring leading blanks when computing the Start
      of the field, skip past them here.  */
   if (key->skipsblanks)
-    while (ptr < lim && blanks[to_uchar (*ptr)])
-      ++ptr;
+    {
+      for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+        {
+          if (!blanks(c))
+            break;
+        }
+    }
 
   /* Advance PTR by SCHAR (if possible), but no further than LIM.  */
-  ptr = MIN (lim, ptr + schar);
+  for (size_t i = 0; i < schar; i++)
+    {
+      if (mbrnext0(&c, &ptr, lim, &mbs) != MB_OK)
+        break;
+    }
 
-  return ptr;
+  if (!mbsinit(&mbs))
+    error (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
+
+  // TODO: work out const issues
+  return (char *) ptr;
 }
 
 /* Return the limit of (a pointer to the first character after) the field
@@ -1648,8 +1698,10 @@ begfield (struct line const *line, struct keyfield const *key)
 static char *
 limfield (struct line const *line, struct keyfield const *key)
 {
-  char *ptr = line->text, *lim = ptr + line->length - 1;
+  const char *ptr = line->text, *lim = ptr + line->length - 1;
   size_t eword = key->eword, echar = key->echar;
+  mbstate_t mbs = { 0 };
+  wchar_t c;
 
   if (echar == 0)
     eword++; /* Skip all of end field.  */
@@ -1664,18 +1716,31 @@ limfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && eword--)
       {
-        while (ptr < lim && *ptr != tab)
-          ++ptr;
+        for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+          {
+            if (c == tab)
+              break;
+          }
+
         if (ptr < lim && (eword || echar))
-          ++ptr;
+          {
+            mbrnext0(&c, &ptr, lim, &mbs);
+          }
       }
   else
     while (ptr < lim && eword--)
       {
-        while (ptr < lim && blanks[to_uchar (*ptr)])
-          ++ptr;
-        while (ptr < lim && !blanks[to_uchar (*ptr)])
-          ++ptr;
+        for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+          {
+            if (!blanks(c))
+              break;
+          }
+
+        for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+          {
+            if (blanks(c))
+              break;
+          }
       }
 
 #ifdef POSIX_UNSPECIFIED
@@ -1713,6 +1778,7 @@ limfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     {
       char *newlim;
+#error needs multibyte
       newlim = memchr (ptr, tab, lim - ptr);
       if (newlim)
         lim = newlim;
@@ -1721,9 +1787,10 @@ limfield (struct line const *line, struct keyfield const *key)
     {
       char *newlim;
       newlim = ptr;
-      while (newlim < lim && blanks[to_uchar (*newlim)])
+#error needs multibyte
+      while (newlim < lim && blanks(to_uchar (*newlim)))
         ++newlim;
-      while (newlim < lim && !blanks[to_uchar (*newlim)])
+      while (newlim < lim && !blanks(to_uchar (*newlim)))
         ++newlim;
       lim = newlim;
     }
@@ -1734,14 +1801,27 @@ limfield (struct line const *line, struct keyfield const *key)
       /* If we're ignoring leading blanks when computing the End
          of the field, skip past them here.  */
       if (key->skipeblanks)
-        while (ptr < lim && blanks[to_uchar (*ptr)])
-          ++ptr;
+        {
+          for (; mbrpeek0(&c, &ptr, lim, &mbs) == MB_OK; mbrnext0(&c, &ptr, lim, &mbs))
+            {
+              if (!blanks(c))
+                break;
+            }
+        }
 
       /* Advance PTR by ECHAR (if possible), but no further than LIM.  */
-      ptr = MIN (lim, ptr + echar);
+      for (size_t i = 0; i < echar; i++)
+        {
+          if (mbrnext0(&c, &ptr, lim, &mbs) != MB_OK)
+            break;
+        }
     }
 
-  return ptr;
+  if (!mbsinit(&mbs))
+    error (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at end of field"));
+
+  // TODO: work out const issues
+  return (char *) ptr;
 }
 
 /* Fill BUF reading from FP, moving buf->left bytes from the end
@@ -1774,7 +1854,7 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
       struct line *linelim = buffer_linelim (buf);
       struct line *line = linelim - buf->nlines;
       size_t avail = (char *) linelim - buf->nlines * line_bytes - ptr;
-      char *line_start = buf->nlines ? line->text + line->length : buf->buf;
+      const char *line_start = buf->nlines ? line->text + line->length : buf->buf;
 
       while (line_bytes + 1 < avail)
         {
@@ -1812,7 +1892,8 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
               *p = '\0';
               ptr = p + 1;
               line--;
-              line->text = line_start;
+              // TODO: figure out const
+              line->text = (char *) line_start;
               line->length = ptr - line_start;
               mergesize = MAX (mergesize, line->length);
               avail -= line_bytes;
@@ -1830,9 +1911,22 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
                   else
                     {
                       if (key->skipsblanks)
-                        while (blanks[to_uchar (*line_start)])
-                          line_start++;
-                      line->keybeg = line_start;
+                        {
+                          const char *line_end = line_start + line->length;
+                          mbstate_t mbs = { 0 };
+                          wchar_t c;
+
+                          for (; mbrpeek0(&c, &line_start, line_end, &mbs) == MB_OK; mbrnext0(&c, &line_start, line_end, &mbs))
+                            {
+                              if (!blanks(c))
+                                break;
+                            }
+
+                          if (!mbsinit(&mbs))
+                            error (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
+                        }
+                      // TODO: Figure out const
+                      line->keybeg = (char *) line_start;
                     }
                 }
 
@@ -1901,42 +1995,96 @@ static unsigned char
 traverse_raw_number (char const **number)
 {
   char const *p = *number;
-  unsigned char ch;
-  unsigned char max_digit = '\0';
+  wchar_t max_digit = L'\0';
   bool ends_with_thousands_sep = false;
+  const char *pend = p + strlen(p);
 
   /* Scan to end of number.
      Decimals or separators not followed by digits stop the scan.
      Numbers ending in decimals or separators are thus considered
-     to be lacking in units.
-     FIXME: add support for multibyte thousands_sep and decimal_point.  */
+     to be lacking in units. */
 
-  while (ISDIGIT (ch = *p++))
+  wchar_t ch;
+  mbstate_t mbs = { 0 };
+
+  // Two characters back from the current end
+  const char *p2 = p;
+  mbstate_t mbs2 = mbs;
+
+  // One character back from the current end
+  const char *p1 = p;
+  mbstate_t mbs1 = mbs;
+
+  while (true)
     {
+      mb_error err = mbrpeek0(&ch, &p, pend, &mbs);
+      if (err != MB_OK)
+        break;
+      if (!isdigit(ch))
+        {
+          // still advances past the non-digit
+
+          p2 = p1, p1 = p;
+          mbs2 = mbs1, mbs1 = mbs;
+          mbrnext0(&ch, &p, pend, &mbs);
+          break;
+        }
+
       if (max_digit < ch)
         max_digit = ch;
+
+      // XXX Could this have ever worked? This is inside the loop
+      // that checks for ISDIGIT, so it would only run if the
+      // thousands_separator is a digit.
 
       /* Allow to skip only one occurrence of thousands_sep to avoid finding
          the unit in the next column in case thousands_sep matches as blank
          and is used as column delimiter.  */
-      ends_with_thousands_sep = (*p == thousands_sep);
+      ends_with_thousands_sep = (ch == thousands_sep);
       if (ends_with_thousands_sep)
-        ++p;
+        {
+          p2 = p1, p1 = p;
+          mbs2 = mbs1, mbs1 = mbs;
+          mbrnext0(&ch, &p, pend, &mbs);
+        }
+
+      p2 = p1, p1 = p;
+      mbs2 = mbs1, mbs1 = mbs;
+      mbrnext0(&ch, &p, pend, &mbs);
     }
 
   if (ends_with_thousands_sep)
     {
       /* thousands_sep not followed by digit is not allowed.  */
-      *number = p - 2;
+      *number = p2;
       return max_digit;
     }
 
   if (ch == decimal_point)
-    while (ISDIGIT (ch = *p++))
-      if (max_digit < ch)
-        max_digit = ch;
+    {
+      while (true)
+        {
+          mb_error err = mbrpeek0(&ch, &p, pend, &mbs);
+          if (err != MB_OK)
+            break;
 
-  *number = p - 1;
+          if (!isdigit(ch))
+            {
+              // still advances past the non-digit
+
+              p2 = p1, p1 = p;
+              mbs2 = mbs1, mbs1 = mbs;
+              mbrnext0(&ch, &p, pend, &mbs);
+
+              break;
+            }
+
+          if (max_digit < ch)
+            max_digit = ch;
+        }
+    }
+
+  *number = p1;
   return max_digit;
 }
 
@@ -1967,13 +2115,27 @@ find_unit_order (char const *number)
 static int
 human_numcompare (char const *a, char const *b)
 {
-  while (blanks[to_uchar (*a)])
-    a++;
-  while (blanks[to_uchar (*b)])
-    b++;
+  int bytes;
+  wchar_t c;
+
+  mbstate_t mbsa = { 0 };
+  const char *aend = a + strlen(a);
+  for (; mbrpeek0(&c, &a, aend, &mbsa) == MB_OK; mbrnext0(&c, &a, aend, &mbsa))
+    {
+      if (!blanks(c))
+        break;
+    }
+
+  mbstate_t mbsb = { 0 };
+  const char *bend = b + strlen(b);
+  for (; mbrpeek0(&c, &b, bend, &mbsb) == MB_OK; mbrnext0(&c, &b, bend, &mbsb))
+    {
+      if (!blanks(c))
+        break;
+    }
 
   int diff = find_unit_order (a) - find_unit_order (b);
-  return (diff ? diff : strnumcmp (a, b, decimal_point, thousands_sep));
+  return (diff ? diff : wstrnumcmp (a, b, decimal_point, thousands_sep));
 }
 
 /* Compare strings A and B as numbers without explicitly converting them to
@@ -1983,12 +2145,26 @@ human_numcompare (char const *a, char const *b)
 static int
 numcompare (char const *a, char const *b)
 {
-  while (blanks[to_uchar (*a)])
-    a++;
-  while (blanks[to_uchar (*b)])
-    b++;
+  int bytes;
+  wchar_t c;
 
-  return strnumcmp (a, b, decimal_point, thousands_sep);
+  mbstate_t mbsa = { 0 };
+  const char *aend = a + strlen(a);
+  for (; mbrpeek0(&c, &a, aend, &mbsa) == MB_OK; mbrnext0(&c, &a, aend, &mbsa))
+    {
+      if (!blanks(c))
+        break;
+    }
+
+  mbstate_t mbsb = { 0 };
+  const char *bend = b + strlen(b);
+  for (; mbrpeek0(&c, &b, bend, &mbsb) == MB_OK; mbrnext0(&c, &b, bend, &mbsb))
+    {
+      if (!blanks(c))
+        break;
+    }
+
+  return wstrnumcmp (a, b, decimal_point, thousands_sep);
 }
 
 /* Work around a problem whereby the long double value returned by glibc's
@@ -2045,34 +2221,48 @@ getmonth (char const *month, char **ea)
 {
   size_t lo = 0;
   size_t hi = MONTHS_PER_YEAR;
+  char const *mend = month + strlen(month);
+  mbstate_t mbs = { 0 };
+  wchar_t c;
 
-  while (blanks[to_uchar (*month)])
-    month++;
+  for (; mbrpeek0(&c, &month, mend, &mbs) == MB_OK; mbrnext0(&c, &month, mend, &mbs))
+    {
+      if (!blanks(c))
+        break;
+    }
 
   do
     {
       size_t ix = (lo + hi) / 2;
       char const *m = month;
-      char const *n = monthtab[ix].name;
+      mbstate_t mbs2 = mbs;
+      wchar_t const *n = monthtab[ix].name;
 
-      for (;; m++, n++)
+      while (true)
         {
+          wchar_t mc;
+          mb_error mbe = mbrpeek0(&mc, &m, mend, &mbs);
+          if (mbe != MB_OK)
+            mc = L'\0';
+
           if (!*n)
             {
               if (ea)
                 *ea = (char *) m;
               return monthtab[ix].val;
             }
-          if (to_uchar (fold_toupper[to_uchar (*m)]) < to_uchar (*n))
+          if (towupper(mc) < *n)
             {
               hi = ix;
               break;
             }
-          else if (to_uchar (fold_toupper[to_uchar (*m)]) > to_uchar (*n))
+          else if (towupper(mc) > *n)
             {
               lo = ix + 1;
               break;
             }
+
+          mbrnext0(&mc, &m, mend, &mbs);
         }
     }
   while (lo < hi);
@@ -2300,9 +2490,9 @@ key_numeric (struct keyfield const *key)
 static void
 debug_key (struct line const *line, struct keyfield const *key)
 {
-  char *text = line->text;
-  char *beg = text;
-  char *lim = text + line->length - 1;
+  const char *text = line->text;
+  const char *beg = text;
+  char *lim = line->text + line->length - 1;
 
   if (key)
     {
@@ -2317,10 +2507,17 @@ debug_key (struct line const *line, struct keyfield const *key)
           char saved = *lim;
           *lim = '\0';
 
-          while (blanks[to_uchar (*beg)])
-            beg++;
+          wchar_t c;
+          mbstate_t mbs = { 0 };
 
-          char *tighter_lim = beg;
+          for (; mbrpeek0(&c, &beg, lim, &mbs) == MB_OK; mbrnext0(&c, &beg, lim, &mbs))
+            {
+              if (!blanks(c))
+                break;
+            }
+
+          // TODO: Figure out const
+          char *tighter_lim = (char *) beg;
 
           if (lim < beg)
             tighter_lim = lim;
@@ -2527,17 +2724,17 @@ keycompare (struct line const *a, struct line const *b)
 
   /* For the first iteration only, the key positions have been
      precomputed for us. */
-  char *texta = a->keybeg;
-  char *textb = b->keybeg;
-  char *lima = a->keylim;
-  char *limb = b->keylim;
+  const char *texta = a->keybeg;
+  const char *textb = b->keybeg;
+  const char *lima = a->keylim;
+  const char *limb = b->keylim;
 
   int diff;
 
   while (true)
     {
-      char const *translate = key->translate;
-      bool const *ignore = key->ignore;
+      wchar_t (*translate)(wchar_t) = key->translate;
+      bool (*ignore)(wchar_t) = key->ignore;
 
       /* Treat field ends before field starts as empty fields.  */
       lima = MAX (texta, lima);
@@ -2569,34 +2766,89 @@ keycompare (struct line const *a, struct line const *b)
               size_t i;
 
               /* Allocate space for copies.  */
-              size_t size = lena + 1 + lenb + 1;
+
+              // Very conservatively: Each multibyte character can yield at most
+              // one wide character, and then on retranslation, each of those
+              // can yield at most MB_CUR_MAX bytes.
+
+              size_t size = (lena + 1) * MB_CUR_MAX + (lenb + 1) * MB_CUR_MAX;
               if (size <= sizeof stackbuf)
                 ta = stackbuf, allocated = NULL;
               else
                 ta = allocated = xmalloc (size);
-              tb = ta + lena + 1;
+              tb = ta + (lena + 1) * MB_CUR_MAX;
 
               /* Put into each copy a version of the key in which the
                  requested characters are ignored or translated.  */
-              for (tlena = i = 0; i < lena; i++)
-                if (! (ignore && ignore[to_uchar (texta[i])]))
-                  ta[tlena++] = (translate
-                                 ? translate[to_uchar (texta[i])]
-                                 : texta[i]);
+
+              wchar_t c;
+              const char *in, *end;
+              char *out;
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+              mbstate_t mbsa_out = { 0 }, mbsb_out = { 0 };
+
+              in = texta;
+              out = ta;
+              end = texta + lena;
+
+              while (true)
+                {
+                  mb_error mbe = mbrnext0(&c, &in, end, &mbsa);
+                  if (mbe == MB_EOF)
+                    break;
+                  if (mbe != MB_OK)
+                    error(EXIT_FAILURE, errno, _("string conversion failed: %s"), quote(in));
+
+                  if (ignore && ignore(c))
+                    continue;
+
+                  if (translate)
+                    c = translate(c);
+
+                  size_t count = wcrtomb(out, c, &mbsa_out);
+                  if (count == (size_t) -1)
+                    error(EXIT_FAILURE, errno, _("string conversion failed"));
+
+                  out += count;
+                }
+
+              tlena = out - ta;
               ta[tlena] = '\0';
 
-              for (tlenb = i = 0; i < lenb; i++)
-                if (! (ignore && ignore[to_uchar (textb[i])]))
-                  tb[tlenb++] = (translate
-                                 ? translate[to_uchar (textb[i])]
-                                 : textb[i]);
+              in = textb;
+              out = tb;
+              end = textb + lenb;
+
+              while (true)
+                {
+                  mb_error mbe = mbrnext0(&c, &in, end, &mbsb);
+                  if (mbe == MB_EOF)
+                    break;
+                  if (mbe != MB_OK)
+                    error(EXIT_FAILURE, errno, _("string conversion failed: %s"), quote(in));
+
+                  if (ignore && ignore(c))
+                    continue;
+
+                  if (translate)
+                    c = translate(c);
+
+                  size_t count = wcrtomb(out, c, &mbsb_out);
+                  if (count == (size_t) -1)
+                    error(EXIT_FAILURE, errno, _("string conversion failed"));
+
+                  out += count;
+                }
+
+              tlenb = out - tb;
               tb[tlenb] = '\0';
             }
           else
             {
               /* Use the keys in-place, temporarily null-terminated.  */
-              ta = texta; tlena = lena; enda = ta[tlena]; ta[tlena] = '\0';
-              tb = textb; tlenb = lenb; endb = tb[tlenb]; tb[tlenb] = '\0';
+              // TODO: Figure out const
+              ta = (char *) texta; tlena = lena; enda = ta[tlena]; ta[tlena] = '\0';
+              tb = (char *) textb; tlenb = lenb; endb = tb[tlenb]; tb[tlenb] = '\0';
             }
 
           if (key->numeric)
@@ -2633,33 +2885,48 @@ keycompare (struct line const *a, struct line const *b)
         }
       else if (ignore)
         {
-#define CMP_WITH_IGNORE(A, B)						\
-  do									\
-    {									\
-          while (true)							\
-            {								\
-              while (texta < lima && ignore[to_uchar (*texta)])		\
-                ++texta;						\
-              while (textb < limb && ignore[to_uchar (*textb)])		\
-                ++textb;						\
-              if (! (texta < lima && textb < limb))			\
-                break;							\
-              diff = to_uchar (A) - to_uchar (B);			\
-              if (diff)							\
-                goto not_equal;						\
-              ++texta;							\
-              ++textb;							\
-            }								\
-                                                                        \
-          diff = (texta < lima) - (textb < limb);			\
-    }									\
-  while (0)
+          while (true)
+            {
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+              wchar_t ca = 0, cb = 0;
+              mb_error err;
 
-          if (translate)
-            CMP_WITH_IGNORE (translate[to_uchar (*texta)],
-                             translate[to_uchar (*textb)]);
-          else
-            CMP_WITH_IGNORE (*texta, *textb);
+              for (; (err = mbrpeek0(&ca, &texta, lima, &mbsa)) == MB_OK; mbrnext0(&ca, &texta, lima, &mbsa))
+                {
+                  if (!ignore(ca))
+                    break;
+                }
+
+              if (err != MB_OK && err != MB_EOF)
+                error(EXIT_FAILURE, errno, _("string comparison failed"));
+
+              for (; (err = mbrpeek0(&cb, &textb, limb, &mbsb)) == MB_OK; mbrnext0(&cb, &textb, limb, &mbsb))
+                {
+                  if (!ignore(cb))
+                    break;
+                }
+
+              if (err != MB_OK && err != MB_EOF)
+                error(EXIT_FAILURE, errno, _("string comparison failed"));
+
+              if (! (texta < lima && textb < limb))
+                break;
+
+              if (translate)
+                {
+                  ca = translate(ca);
+                  cb = translate(cb);
+                }
+
+              diff = ca - cb;
+              if (diff)
+                goto not_equal;
+
+              mbrnext0(&ca, &texta, lima, &mbsa);
+              mbrnext0(&cb, &textb, limb, &mbsb);
+            }
+
+            diff = (texta < lima) - (textb < limb);
         }
       else if (lena == 0)
         diff = - NONZERO (lenb);
@@ -2669,16 +2936,32 @@ keycompare (struct line const *a, struct line const *b)
         {
           if (translate)
             {
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+              wchar_t ca = 0, cb = 0;
+              mb_error err;
+
               while (texta < lima && textb < limb)
                 {
-                  diff = (to_uchar (translate[to_uchar (*texta++)])
-                          - to_uchar (translate[to_uchar (*textb++)]));
+                  err = mbrpeek0(&ca, &texta, lima, &mbsa);
+                  if (err != MB_OK)
+                    error(EXIT_FAILURE, errno, _("string comparison failed"));
+
+                  err = mbrpeek0(&cb, &textb, limb, &mbsb);
+                  if (err != MB_OK)
+                    error(EXIT_FAILURE, errno, _("string comparison failed"));
+
+                  diff = translate(ca) - translate(cb);
                   if (diff)
                     goto not_equal;
+
+                  mbrnext0(&ca, &texta, lima, &mbsa);
+                  mbrnext0(&cb, &textb, limb, &mbsb);
                 }
             }
           else
             {
+              // No multibyte here because this is only run in the C locale
+              // without transformations
               diff = memcmp (texta, textb, MIN (lena, lenb));
               if (diff)
                 goto not_equal;
@@ -2706,10 +2989,20 @@ keycompare (struct line const *a, struct line const *b)
           texta = a->text, textb = b->text;
           if (key->skipsblanks)
             {
-              while (texta < lima && blanks[to_uchar (*texta)])
-                ++texta;
-              while (textb < limb && blanks[to_uchar (*textb)])
-                ++textb;
+              wchar_t c;
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+
+              for (; mbrpeek0(&c, &texta, lima, &mbsa) == MB_OK; mbrnext0(&c, &texta, lima, &mbsa))
+                {
+                  if (!blanks(c))
+                    break;
+                }
+
+              for (; mbrpeek0(&c, &textb, limb, &mbsb) == MB_OK; mbrnext0(&c, &textb, limb, &mbsb))
+                {
+                  if (!blanks(c))
+                    break;
+                }
             }
         }
     }
@@ -3193,7 +3486,7 @@ sequential_sort (struct line *restrict lines, size_t nlines,
   if (nlines == 2)
     {
       /* Declare 'swap' as int, not bool, to work around a bug
-        <https://lists.gnu.org/r/bug-coreutils/2005-10/msg00086.html>
+         <http://lists.gnu.org/archive/html/bug-coreutils/2005-10/msg00086.html>
          in the IBM xlc 6.0.0.0 compiler in 64-bit mode.  */
       int swap = (0 < compare (&lines[-1], &lines[-2]));
       if (to_temp)
@@ -4234,14 +4527,20 @@ main (int argc, char **argv)
     /* If the locale doesn't define a decimal point, or if the decimal
        point is multibyte, use the C locale's decimal point.  FIXME:
        add support for multibyte decimal points.  */
-    decimal_point = to_uchar (locale->decimal_point[0]);
-    if (! decimal_point || locale->decimal_point[1])
-      decimal_point = '.';
 
-    /* FIXME: add support for multibyte thousands separators.  */
-    thousands_sep = to_uchar (*locale->thousands_sep);
-    if (! thousands_sep || locale->thousands_sep[1])
-      thousands_sep = -1;
+    const char *d = locale->decimal_point;
+    mbstate_t ds = { 0 };
+
+    mb_error err = mbrnext0(&decimal_point, &d, d + strlen(d), &ds);
+    if (err != MB_OK || ! decimal_point || *d)
+      decimal_point = L'.';
+
+    const char *t = locale->thousands_sep;
+    mbstate_t ts = { 0 };
+
+    err = mbrnext0(&thousands_sep, &t, t + strlen(t), &ts);
+    if (err != MB_OK || ! thousands_sep || *t)
+      thousands_sep = WEOF;
   }
 
   have_read_stdin = false;
@@ -4518,23 +4817,25 @@ main (int argc, char **argv)
 
         case 't':
           {
-            char newtab = optarg[0];
-            if (! newtab)
-              die (SORT_FAILURE, 0, _("empty tab"));
-            if (optarg[1])
+            wchar_t newtab;
+            if (STREQ (optarg, "\\0"))
+              newtab = '\0';
+            else
               {
-                if (STREQ (optarg, "\\0"))
-                  newtab = '\0';
-                else
-                  {
-                    /* Provoke with 'sort -txx'.  Complain about
-                       "multi-character tab" instead of "multibyte tab", so
-                       that the diagnostic's wording does not need to be
-                       changed once multibyte characters are supported.  */
-                    die (SORT_FAILURE, 0, _("multi-character tab %s"),
-                         quote (optarg));
-                  }
+                mbstate_t mbs = { 0 };
+                const char *s = optarg;
+                mb_error err = mbrnext0(&newtab, &s, s + strlen(s), &mbs);
+                if (err != MB_OK)
+                  die (SORT_FAILURE, 0, _("empty tab"));
+                if (*s != '\0')
+                  /* Provoke with 'sort -txx'.  Complain about
+                     "multi-character tab" instead of "multibyte tab", so
+                     that the diagnostic's wording does not need to be
+                     changed once multibyte characters are supported.  */
+                  die (SORT_FAILURE, 0, _("multi-character tab %s"),
+                       quote (optarg));
               }
+
             if (tab != TAB_DEFAULT && tab != newtab)
               die (SORT_FAILURE, 0, _("incompatible tabs"));
             tab = newtab;

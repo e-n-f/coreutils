@@ -48,4 +48,17 @@ wfield_sep (wchar_t ch)
 
 #define WSTREQ_LEN(a, b, n) (wcsncmp (a, b, n) == 0)
 
+typedef enum mb_error {
+  MB_OK,
+  MB_EOF,
+  MB_ERROR,
+  MB_INCOMPLETE,
+} mb_error;
+
+mb_error mbrnext0(wchar_t *c, const char **s, const char *end, mbstate_t *state);
+
+mb_error mbrpeek0(wchar_t *c, const char **s, const char *end, mbstate_t *state);
+
+int wstrnumcmp (char const *, char const *, wint_t, wint_t);
+
 #endif
