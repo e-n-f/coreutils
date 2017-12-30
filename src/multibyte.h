@@ -46,4 +46,6 @@ wfield_sep (wchar_t ch)
   return iswblank (ch) || ch == L'\n';
 }
 
+#define WSTREQ_LEN(a, b, n) (wcsncmp (a, b, n) == 0)
+
 #endif

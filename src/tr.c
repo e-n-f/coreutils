@@ -12,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* Written by Jim Meyering */
 
@@ -22,6 +22,8 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <getopt.h>
+#include <wctype.h>
+#include <wchar.h>
 
 #include "system.h"
 #include "die.h"
@@ -31,13 +33,15 @@
 #include "safe-read.h"
 #include "xbinary-io.h"
 #include "xstrtol.h"
+#include "multibyte.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "tr"
 
-#define AUTHORS proper_name ("Jim Meyering")
+#define AUTHORS proper_name ("Jim Meyering"), proper_name ("Eric Fischer")
 
-enum { N_CHARS = UCHAR_MAX + 1 };
+// XXX this is enough for UTF-8 but perhaps not for other locales
+enum { N_CHARS = 0x10FFFF + 1 };
 
 /* An unsigned integer type big enough to hold a repeat count or an
    unsigned character.  POSIX requires support for repeat counts as
@@ -109,18 +113,18 @@ struct List_element
     struct List_element *next;
     union
       {
-        unsigned char normal_char;
+        wchar_t normal_char;
         struct			/* unnamed */
           {
-            unsigned char first_char;
-            unsigned char last_char;
+            wchar_t first_char;
+            wchar_t last_char;
           }
         range;
         enum Char_class char_class;
-        unsigned char equiv_code;
+        wchar_t equiv_code;
         struct			/* unnamed */
           {
-            unsigned char the_repeated_char;
+            wchar_t the_repeated_char;
             count repeat_count;
           }
         repeated_char;
@@ -183,7 +187,7 @@ struct Spec_list
    entry in the ESCAPED vector.  */
 struct E_string
 {
-  char *s;
+  wchar_t *s;
   bool *escaped;
   size_t len;
 };
@@ -191,7 +195,7 @@ struct E_string
 /* Return nonzero if the Ith character of escaped string ES matches C
    and is not escaped itself.  */
 static inline bool
-es_match (struct E_string const *es, size_t i, char c)
+es_match (struct E_string const *es, size_t i, wchar_t c)
 {
   return es->s[i] == c && !es->escaped[i];
 }
@@ -241,12 +245,12 @@ static bool truncate_set1 = false;
    It is set in main and used there and in validate().  */
 static bool translating;
 
-static char io_buf[BUFSIZ];
+static wchar_t io_buf[BUFSIZ];
 
-static char const *const char_class_name[] =
+static wchar_t const *const char_class_name[] =
 {
-  "alnum", "alpha", "blank", "cntrl", "digit", "graph",
-  "lower", "print", "punct", "space", "upper", "xdigit"
+  L"alnum", L"alpha", L"blank", L"cntrl", L"digit", L"graph",
+  L"lower", L"print", L"punct", L"space", L"upper", L"xdigit"
 };
 
 /* Array of boolean values.  A character 'c' is a member of the
@@ -264,7 +268,7 @@ static bool in_delete_set[N_CHARS];
 /* Array of character values defining the translation (if any) that
    tr is to perform.  Translation is performed only when there are
    two specification strings and the delete switch is not given.  */
-static char xlate[N_CHARS];
+static wchar_t xlate[N_CHARS];
 
 static struct option const long_options[] =
 {
@@ -355,7 +359,7 @@ specified SET, and occurs after translation or deletion.\n\
    equivalence class containing the character EQUIV_CLASS.  */
 
 static inline bool
-is_equiv_class_member (unsigned char equiv_class, unsigned char c)
+is_equiv_class_member (wchar_t equiv_class, wchar_t c)
 {
   return (equiv_class == c);
 }
@@ -364,47 +368,47 @@ is_equiv_class_member (unsigned char equiv_class, unsigned char c)
    character class CHAR_CLASS.  */
 
 static bool _GL_ATTRIBUTE_PURE
-is_char_class_member (enum Char_class char_class, unsigned char c)
+is_char_class_member (enum Char_class char_class, wchar_t c)
 {
   int result;
 
   switch (char_class)
     {
     case CC_ALNUM:
-      result = isalnum (c);
+      result = iswalnum (c);
       break;
     case CC_ALPHA:
-      result = isalpha (c);
+      result = iswalpha (c);
       break;
     case CC_BLANK:
-      result = isblank (c);
+      result = iswblank (c);
       break;
     case CC_CNTRL:
-      result = iscntrl (c);
+      result = iswcntrl (c);
       break;
     case CC_DIGIT:
-      result = isdigit (c);
+      result = iswdigit (c);
       break;
     case CC_GRAPH:
-      result = isgraph (c);
+      result = iswgraph (c);
       break;
     case CC_LOWER:
-      result = islower (c);
+      result = iswlower (c);
       break;
     case CC_PRINT:
-      result = isprint (c);
+      result = iswprint (c);
       break;
     case CC_PUNCT:
-      result = ispunct (c);
+      result = iswpunct (c);
       break;
     case CC_SPACE:
-      result = isspace (c);
+      result = iswspace (c);
       break;
     case CC_UPPER:
-      result = isupper (c);
+      result = iswupper (c);
       break;
     case CC_XDIGIT:
-      result = isxdigit (c);
+      result = iswxdigit (c);
       break;
     default:
       abort ();
@@ -428,65 +432,70 @@ es_free (struct E_string *es)
    however, on input, S is assumed to be null-terminated, and hence
    cannot contain actual (non-escaped) zero bytes.  */
 
-static bool
-unquote (char const *s, struct E_string *es)
-{
-  size_t len = strlen (s);
+/* TODO: POSIX still reads as if adjacent octal escapes that are not
+   endpoints of a range should be combined into a single multibyte
+   character.  This code currently treats each escape as representing
+   a complete character, regardless of context.  */
 
-  es->s = xmalloc (len);
+static bool
+unquote (wchar_t const *s, struct E_string *es)
+{
+  size_t len = wcslen (s);
+
+  es->s = xmalloc (len * sizeof(wchar_t));
   es->escaped = xcalloc (len, sizeof es->escaped[0]);
 
   unsigned int j = 0;
   for (unsigned int i = 0; s[i]; i++)
     {
-      unsigned char c;
+      wchar_t c;
       int oct_digit;
 
       switch (s[i])
         {
-        case '\\':
+        case L'\\':
           es->escaped[j] = true;
           switch (s[i + 1])
             {
-            case '\\':
-              c = '\\';
+            case L'\\':
+              c = L'\\';
               break;
-            case 'a':
-              c = '\a';
+            case L'a':
+              c = L'\a';
               break;
-            case 'b':
-              c = '\b';
+            case L'b':
+              c = L'\b';
               break;
-            case 'f':
-              c = '\f';
+            case L'f':
+              c = L'\f';
               break;
-            case 'n':
-              c = '\n';
+            case L'n':
+              c = L'\n';
               break;
-            case 'r':
-              c = '\r';
+            case L'r':
+              c = L'\r';
               break;
-            case 't':
-              c = '\t';
+            case L't':
+              c = L'\t';
               break;
-            case 'v':
-              c = '\v';
+            case L'v':
+              c = L'\v';
               break;
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-              c = s[i + 1] - '0';
-              oct_digit = s[i + 2] - '0';
+            case L'0':
+            case L'1':
+            case L'2':
+            case L'3':
+            case L'4':
+            case L'5':
+            case L'6':
+            case L'7':
+              c = s[i + 1] - L'0';
+              oct_digit = s[i + 2] - L'0';
               if (0 <= oct_digit && oct_digit <= 7)
                 {
                   c = 8 * c + oct_digit;
                   ++i;
-                  oct_digit = s[i + 2] - '0';
+                  oct_digit = s[i + 2] - L'0';
                   if (0 <= oct_digit && oct_digit <= 7)
                     {
                       if (8 * c + oct_digit < N_CHARS)
@@ -512,13 +521,13 @@ unquote (char const *s, struct E_string *es)
                     }
                 }
               break;
-            case '\0':
+            case L'\0':
               error (0, 0, _("warning: an unescaped backslash "
                              "at end of string is not portable"));
               /* POSIX is not clear about this.  */
               es->escaped[j] = false;
               i--;
-              c = '\\';
+              c = L'\\';
               break;
             default:
               c = s[i + 1];
@@ -540,13 +549,13 @@ unquote (char const *s, struct E_string *es)
    in the global char_class_name array.  Otherwise, return CC_NO_CLASS.  */
 
 static enum Char_class _GL_ATTRIBUTE_PURE
-look_up_char_class (char const *class_str, size_t len)
+look_up_char_class (wchar_t const *class_str, size_t len)
 {
   enum Char_class i;
 
   for (i = 0; i < ARRAY_CARDINALITY (char_class_name); i++)
-    if (STREQ_LEN (class_str, char_class_name[i], len)
-        && strlen (char_class_name[i]) == len)
+    if (WSTREQ_LEN (class_str, char_class_name[i], len)
+        && wcslen (char_class_name[i]) == len)
       return i;
   return CC_NO_CLASS;
 }
@@ -554,82 +563,93 @@ look_up_char_class (char const *class_str, size_t len)
 /* Return a newly allocated string with a printable version of C.
    This function is used solely for formatting error messages.  */
 
-static char *
-make_printable_char (unsigned char c)
+static wchar_t *
+make_printable_char (wchar_t c)
 {
-  char *buf = xmalloc (5);
+  wchar_t *buf = xmalloc (5 * sizeof(wchar_t));
 
-  if (isprint (c))
+  if (iswprint (c))
     {
       buf[0] = c;
-      buf[1] = '\0';
+      buf[1] = L'\0';
     }
   else
     {
-      sprintf (buf, "\\%03o", c);
+      swprintf (buf, 5, L"\\%03o", c);
     }
   return buf;
 }
 
+static wchar_t *
+wstpcpy (wchar_t *dst, const wchar_t *src)
+{
+  for (; *src != L'\0'; src++)
+    {
+      *(dst++) = *src;
+    }
+  *dst = L'\0';
+  return dst;
+}
+
 /* Return a newly allocated copy of S which is suitable for printing.
    LEN is the number of characters in S.  Most non-printing
-   (isprint) characters are represented by a backslash followed by
+   (iswprint) characters are represented by a backslash followed by
    3 octal digits.  However, the characters represented by \c escapes
    where c is one of [abfnrtv] are represented by their 2-character \c
    sequences.  This function is used solely for printing error messages.  */
 
-static char *
-make_printable_str (char const *s, size_t len)
+static wchar_t *
+make_printable_str (wchar_t const *s, size_t len)
 {
   /* Worst case is that every character expands to a backslash
      followed by a 3-character octal escape sequence.  */
-  char *printable_buf = xnmalloc (len + 1, 4);
-  char *p = printable_buf;
+  wchar_t *printable_buf = xnmalloc (len + 1, 4 * sizeof(wchar_t));
+  wchar_t *p = printable_buf;
 
   for (size_t i = 0; i < len; i++)
     {
-      char buf[5];
-      char const *tmp = NULL;
-      unsigned char c = s[i];
+      wchar_t buf[5];
+      wchar_t const *tmp = NULL;
+      wchar_t c = s[i];
 
       switch (c)
         {
-        case '\\':
-          tmp = "\\";
+        case L'\\':
+          tmp = L"\\";
           break;
-        case '\a':
-          tmp = "\\a";
+        case L'\a':
+          tmp = L"\\a";
           break;
-        case '\b':
-          tmp = "\\b";
+        case L'\b':
+          tmp = L"\\b";
           break;
-        case '\f':
-          tmp = "\\f";
+        case L'\f':
+          tmp = L"\\f";
           break;
-        case '\n':
-          tmp = "\\n";
+        case L'\n':
+          tmp = L"\\n";
           break;
-        case '\r':
-          tmp = "\\r";
+        case L'\r':
+          tmp = L"\\r";
           break;
-        case '\t':
-          tmp = "\\t";
+        case L'\t':
+          tmp = L"\\t";
           break;
-        case '\v':
-          tmp = "\\v";
+        case L'\v':
+          tmp = L"\\v";
           break;
         default:
-          if (isprint (c))
+          if (iswprint (c))
             {
               buf[0] = c;
-              buf[1] = '\0';
+              buf[1] = L'\0';
             }
           else
-            sprintf (buf, "\\%03o", c);
+            swprintf (buf, 5, L"\\%03o", c);
           tmp = buf;
           break;
         }
-      p = stpcpy (p, tmp);
+      p = wstpcpy (p, tmp);
     }
   return printable_buf;
 }
@@ -638,7 +658,7 @@ make_printable_str (char const *s, size_t len)
    character C to the specification list LIST.  */
 
 static void
-append_normal_char (struct Spec_list *list, unsigned char c)
+append_normal_char (struct Spec_list *list, wchar_t c)
 {
   struct List_element *new = xmalloc (sizeof *new);
   new->next = NULL;
@@ -655,15 +675,15 @@ append_normal_char (struct Spec_list *list, unsigned char c)
    true otherwise.  This means that '[c-c]' is acceptable.  */
 
 static bool
-append_range (struct Spec_list *list, unsigned char first, unsigned char last)
+append_range (struct Spec_list *list, wchar_t first, wchar_t last)
 {
   if (last < first)
     {
-      char *tmp1 = make_printable_char (first);
-      char *tmp2 = make_printable_char (last);
+      wchar_t *tmp1 = make_printable_char (first);
+      wchar_t *tmp2 = make_printable_char (last);
 
       error (0, 0,
-       _("range-endpoints of '%s-%s' are in reverse collating sequence order"),
+       _("range-endpoints of '%ls-%ls' are in reverse collating sequence order"),
              tmp1, tmp2);
       free (tmp1);
       free (tmp2);
@@ -687,7 +707,7 @@ append_range (struct Spec_list *list, unsigned char first, unsigned char last)
 
 static bool
 append_char_class (struct Spec_list *list,
-                   char const *char_class_str, size_t len)
+                   wchar_t const *char_class_str, size_t len)
 {
   enum Char_class char_class = look_up_char_class (char_class_str, len);
   if (char_class == CC_NO_CLASS)
@@ -708,7 +728,7 @@ append_char_class (struct Spec_list *list,
    is a non-negative repeat count.  */
 
 static void
-append_repeated_char (struct Spec_list *list, unsigned char the_char,
+append_repeated_char (struct Spec_list *list, wchar_t the_char,
                       count repeat_count)
 {
   struct List_element *new = xmalloc (sizeof *new);
@@ -729,7 +749,7 @@ append_repeated_char (struct Spec_list *list, unsigned char the_char,
 
 static bool
 append_equiv_class (struct Spec_list *list,
-                    char const *equiv_class_str, size_t len)
+                    wchar_t const *equiv_class_str, size_t len)
 {
   if (len != 1)
     return false;
@@ -752,10 +772,10 @@ append_equiv_class (struct Spec_list *list,
 
 static bool
 find_closing_delim (const struct E_string *es, size_t start_idx,
-                    char pre_bracket_char, size_t *result_idx)
+                    wchar_t pre_bracket_char, size_t *result_idx)
 {
   for (size_t i = start_idx; i < es->len - 1; i++)
-    if (es->s[i] == pre_bracket_char && es->s[i + 1] == ']'
+    if (es->s[i] == pre_bracket_char && es->s[i + 1] == L']'
         && !es->escaped[i] && !es->escaped[i + 1])
       {
         *result_idx = i;
@@ -776,16 +796,16 @@ find_closing_delim (const struct E_string *es, size_t start_idx,
 
 static int
 find_bracketed_repeat (const struct E_string *es, size_t start_idx,
-                       unsigned char *char_to_repeat, count *repeat_count,
+                       wchar_t *char_to_repeat, count *repeat_count,
                        size_t *closing_bracket_idx)
 {
   assert (start_idx + 1 < es->len);
-  if (!es_match (es, start_idx + 1, '*'))
+  if (!es_match (es, start_idx + 1, L'*'))
     return -1;
 
   for (size_t i = start_idx + 2; i < es->len && !es->escaped[i]; i++)
     {
-      if (es->s[i] == ']')
+      if (es->s[i] == L']')
         {
           size_t digit_str_len = i - start_idx - 2;
 
@@ -799,18 +819,19 @@ find_bracketed_repeat (const struct E_string *es, size_t start_idx,
             {
               /* Here, we have found [c*s] where s should be a string
                  of octal (if it starts with '0') or decimal digits.  */
-              char const *digit_str = &es->s[start_idx + 2];
-              char *d_end;
-              if ((xstrtoumax (digit_str, &d_end, *digit_str == '0' ? 8 : 10,
-                               repeat_count, NULL)
-                   != LONGINT_OK)
+              wchar_t const *digit_str = &es->s[start_idx + 2];
+              wchar_t *d_end;
+              errno = 0;
+              *repeat_count = wcstoumax (digit_str, &d_end, *digit_str == L'0' ? 8 : 10);
+              if (d_end == digit_str
+                  || errno != 0
                   || REPEAT_COUNT_MAXIMUM < *repeat_count
                   || digit_str + digit_str_len != d_end)
                 {
-                  char *tmp = make_printable_str (digit_str, digit_str_len);
+                  wchar_t *tmp = make_printable_str (digit_str, digit_str_len);
                   error (0, 0,
                          _("invalid repeat count %s in [c*n] construct"),
-                         quote (tmp));
+                         wquote (tmp));
                   free (tmp);
                   return -2;
                 }
@@ -833,8 +854,8 @@ star_digits_closebracket (const struct E_string *es, size_t idx)
     return false;
 
   for (size_t i = idx + 1; i < es->len; i++)
-    if (!ISDIGIT (to_uchar (es->s[i])) || es->escaped[i])
-      return es_match (es, i, ']');
+    if (!iswdigit ((es->s[i])) || es->escaped[i])
+      return es_match (es, i, L']');
   return false;
 }
 
@@ -853,7 +874,7 @@ star_digits_closebracket (const struct E_string *es, size_t idx)
 static bool
 build_spec_list (const struct E_string *es, struct Spec_list *result)
 {
-  char const *p = es->s;
+  wchar_t const *p = es->s;
 
   /* The main for-loop below recognizes the 4 multi-character constructs.
      A character that matches (in its context) none of the multi-character
@@ -864,27 +885,27 @@ build_spec_list (const struct E_string *es, struct Spec_list *result)
   size_t i;
   for (i = 0; i + 2 < es->len; /* empty */)
     {
-      if (es_match (es, i, '['))
+      if (es_match (es, i, L'['))
         {
           bool matched_multi_char_construct;
           size_t closing_bracket_idx;
-          unsigned char char_to_repeat;
+          wchar_t char_to_repeat;
           count repeat_count;
           int err;
 
           matched_multi_char_construct = true;
-          if (es_match (es, i + 1, ':') || es_match (es, i + 1, '='))
+          if (es_match (es, i + 1, L':') || es_match (es, i + 1, L'='))
             {
               size_t closing_delim_idx;
 
               if (find_closing_delim (es, i + 2, p[i + 1], &closing_delim_idx))
                 {
                   size_t opnd_str_len = closing_delim_idx - 1 - (i + 2) + 1;
-                  char const *opnd_str = p + i + 2;
+                  wchar_t const *opnd_str = p + i + 2;
 
                   if (opnd_str_len == 0)
                     {
-                      if (p[i + 1] == ':')
+                      if (p[i + 1] == L':')
                         error (0, 0, _("missing character class name '[::]'"));
                       else
                         error (0, 0,
@@ -892,7 +913,7 @@ build_spec_list (const struct E_string *es, struct Spec_list *result)
                       return false;
                     }
 
-                  if (p[i + 1] == ':')
+                  if (p[i + 1] == L':')
                     {
                       /* FIXME: big comment.  */
                       if (!append_char_class (result, opnd_str, opnd_str_len))
@@ -901,10 +922,10 @@ build_spec_list (const struct E_string *es, struct Spec_list *result)
                             goto try_bracketed_repeat;
                           else
                             {
-                              char *tmp = make_printable_str (opnd_str,
+                              wchar_t *tmp = make_printable_str (opnd_str,
                                                               opnd_str_len);
                               error (0, 0, _("invalid character class %s"),
-                                     quote (tmp));
+                                     wquote (tmp));
                               free (tmp);
                               return false;
                             }
@@ -919,10 +940,10 @@ build_spec_list (const struct E_string *es, struct Spec_list *result)
                             goto try_bracketed_repeat;
                           else
                             {
-                              char *tmp = make_printable_str (opnd_str,
+                              wchar_t *tmp = make_printable_str (opnd_str,
                                                               opnd_str_len);
                               error (0, 0,
-               _("%s: equivalence class operand must be a single character"),
+               _("%ls: equivalence class operand must be a single character"),
                                      tmp);
                               free (tmp);
                               return false;
@@ -968,7 +989,7 @@ build_spec_list (const struct E_string *es, struct Spec_list *result)
         }
 
       /* Look ahead one char for ranges like a-z.  */
-      if (es_match (es, i + 1, '-'))
+      if (es_match (es, i + 1, L'-'))
         {
           if (!append_range (result, p[i], p[i + 2]))
             return false;
@@ -1181,9 +1202,9 @@ validate_case_classes (struct Spec_list *s1, struct Spec_list *s2)
 
   for (int i = 0; i < N_CHARS; i++)
     {
-      if (isupper (i))
+      if (iswupper (i))
         n_upper++;
-      if (islower (i))
+      if (iswlower (i))
         n_lower++;
     }
 
@@ -1348,12 +1369,21 @@ spec_init (struct Spec_list *spec_list)
    of these passes detects an error, this function returns false.  */
 
 static bool
-parse_str (char const *s, struct Spec_list *spec_list)
+parse_str (wchar_t const *s, struct Spec_list *spec_list)
 {
   struct E_string es;
   bool ok = unquote (s, &es) && build_spec_list (&es, spec_list);
   es_free (&es);
   return ok;
+}
+
+static bool
+parse_mb (const char *s, struct Spec_list *spec_list)
+{
+  wchar_t tmp[strlen(s) + 1];
+  if (mbstowcs(tmp, s, strlen(s) + 1) == (size_t) -1)
+    die (EXIT_FAILURE, errno, _("multibyte string conversion"));
+  return parse_str(tmp, spec_list);
 }
 
 /* Given two specification lists, S1 and S2, and assuming that
@@ -1369,7 +1399,7 @@ static void
 string2_extend (const struct Spec_list *s1, struct Spec_list *s2)
 {
   struct List_element *p;
-  unsigned char char_to_repeat;
+  wchar_t char_to_repeat;
 
   assert (translating);
   assert (s1->length > s2->length);
@@ -1510,6 +1540,24 @@ validate (struct Spec_list *s1, struct Spec_list *s2)
     }
 }
 
+size_t
+wfwrite (wchar_t *buf, size_t n, FILE *f)
+{
+  size_t wrote = 0;
+  size_t i;
+
+  for (i = 0; i < n; i++)
+    {
+      if (putwchar(buf[i]) == WEOF)
+        {
+          break;
+        }
+      wrote++;
+    }
+
+  return wrote;
+}
+
 /* Read buffers of SIZE bytes via the function READER (if READER is
    NULL, read from stdin) until EOF.  When non-NULL, READER is either
    read_and_delete or read_and_xlate.  After each buffer is read, it is
@@ -1519,7 +1567,7 @@ validate (struct Spec_list *s1, struct Spec_list *s2)
    character is in the squeeze set.  */
 
 static void
-squeeze_filter (char *buf, size_t size, size_t (*reader) (char *, size_t))
+squeeze_filter (wchar_t *buf, size_t size, size_t (*reader) (wchar_t *, size_t))
 {
   /* A value distinct from any character that may have been stored in a
      buffer as the result of a block-read in the function squeeze_filter.  */
@@ -1555,13 +1603,13 @@ squeeze_filter (char *buf, size_t size, size_t (*reader) (char *, size_t))
              of the input is removed by squeezing repeats.  But most
              uses of this functionality seem to remove less than 20-30%
              of the input.  */
-          for (; i < nr && !in_squeeze_set[to_uchar (buf[i])]; i += 2)
+          for (; i < nr && !in_squeeze_set[(buf[i])]; i += 2)
             continue;
 
           /* There is a special case when i == nr and we've just
              skipped a character (the last one in buf) that is in
              the squeeze set.  */
-          if (i == nr && in_squeeze_set[to_uchar (buf[i - 1])])
+          if (i == nr && in_squeeze_set[(buf[i - 1])])
             --i;
 
           if (i >= nr)
@@ -1583,7 +1631,7 @@ squeeze_filter (char *buf, size_t size, size_t (*reader) (char *, size_t))
               ++i;
             }
           if (out_len > 0
-              && fwrite (&buf[begin], 1, out_len, stdout) != out_len)
+              && wfwrite (&buf[begin], out_len, stdout) != out_len)
             die (EXIT_FAILURE, errno, _("write error"));
         }
 
@@ -1604,12 +1652,23 @@ squeeze_filter (char *buf, size_t size, size_t (*reader) (char *, size_t))
 }
 
 static size_t
-plain_read (char *buf, size_t size)
+plain_read (wchar_t *buf, size_t size)
 {
-  size_t nr = safe_read (STDIN_FILENO, buf, size);
-  if (nr == SAFE_READ_ERROR)
-    die (EXIT_FAILURE, errno, _("read error"));
-  return nr;
+  size_t n = 0;
+  while (n < size)
+    {
+      wint_t c = getwchar();
+      if (c == WEOF)
+        {
+          if (ferror(stdin))
+            {
+              die(EXIT_FAILURE, errno, _("read error"));
+            }
+          break;
+        }
+      buf[n++] = c;
+    }
+  return n;
 }
 
 /* Read buffers of SIZE bytes from stdin until one is found that
@@ -1619,7 +1678,7 @@ plain_read (char *buf, size_t size)
    or 0 upon EOF.  */
 
 static size_t
-read_and_delete (char *buf, size_t size)
+read_and_delete (wchar_t *buf, size_t size)
 {
   size_t n_saved;
 
@@ -1639,12 +1698,12 @@ read_and_delete (char *buf, size_t size)
          of buf[i] into buf[n_saved] when it would be a NOP.  */
 
       size_t i;
-      for (i = 0; i < nr && !in_delete_set[to_uchar (buf[i])]; i++)
+      for (i = 0; i < nr && !in_delete_set[(buf[i])]; i++)
         continue;
       n_saved = i;
 
       for (++i; i < nr; i++)
-        if (!in_delete_set[to_uchar (buf[i])])
+        if (!in_delete_set[(buf[i])])
           buf[n_saved++] = buf[i];
     }
   while (n_saved == 0);
@@ -1652,17 +1711,17 @@ read_and_delete (char *buf, size_t size)
   return n_saved;
 }
 
-/* Read at most SIZE bytes from stdin into the array BUF.  Then
+/* Read at most SIZE characters from stdin into the array BUF.  Then
    perform the in-place and one-to-one mapping specified by the global
    array 'xlate'.  Return the number of characters read, or 0 upon EOF.  */
 
 static size_t
-read_and_xlate (char *buf, size_t size)
+read_and_xlate (wchar_t *buf, size_t size)
 {
   size_t bytes_read = plain_read (buf, size);
 
   for (size_t i = 0; i < bytes_read; i++)
-    buf[i] = xlate[to_uchar (buf[i])];
+    buf[i] = xlate[(buf[i])];
 
   return bytes_read;
 }
@@ -1768,13 +1827,13 @@ main (int argc, char **argv)
     }
 
   spec_init (s1);
-  if (!parse_str (argv[optind], s1))
+  if (!parse_mb (argv[optind], s1))
     return EXIT_FAILURE;
 
   if (non_option_args == 2)
     {
       spec_init (s2);
-      if (!parse_str (argv[optind + 1], s2))
+      if (!parse_mb (argv[optind + 1], s2))
         return EXIT_FAILURE;
     }
   else
@@ -1803,7 +1862,7 @@ main (int argc, char **argv)
           size_t nr = read_and_delete (io_buf, sizeof io_buf);
           if (nr == 0)
             break;
-          if (fwrite (io_buf, 1, nr, stdout) != nr)
+          if (wfwrite (io_buf, nr, stdout) != nr)
             die (EXIT_FAILURE, errno, _("write error"));
         }
     }
@@ -1857,14 +1916,14 @@ main (int argc, char **argv)
               if (class_s1 == UL_LOWER && class_s2 == UL_UPPER)
                 {
                   for (int i = 0; i < N_CHARS; i++)
-                    if (islower (i))
-                      xlate[i] = toupper (i);
+                    if (iswlower (i))
+                      xlate[i] = towupper (i);
                 }
               else if (class_s1 == UL_UPPER && class_s2 == UL_LOWER)
                 {
                   for (int i = 0; i < N_CHARS; i++)
-                    if (isupper (i))
-                      xlate[i] = tolower (i);
+                    if (iswupper (i))
+                      xlate[i] = towlower (i);
                 }
               else
                 {
@@ -1895,7 +1954,7 @@ main (int argc, char **argv)
               size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf);
               if (bytes_read == 0)
                 break;
-              if (fwrite (io_buf, 1, bytes_read, stdout) != bytes_read)
+              if (wfwrite (io_buf, bytes_read, stdout) != bytes_read)
                 die (EXIT_FAILURE, errno, _("write error"));
             }
         }
