@@ -20,6 +20,8 @@
 
 #include <getopt.h>
 #include <sys/types.h>
+#include <wchar.h>
+#include <wctype.h>
 
 #include "system.h"
 #include "argmatch.h"
@@ -34,18 +36,20 @@
 #include "xstrtol.h"
 #include "memcasecmp.h"
 #include "quote.h"
+#include "multibyte.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "uniq"
 
 #define AUTHORS \
   proper_name ("Richard M. Stallman"), \
-  proper_name ("David MacKenzie")
+  proper_name ("David MacKenzie"), \
+  proper_name ("Eric Fischer")
 
 #define SWAP_LINES(A, B)			\
   do						\
     {						\
-      struct linebuffer *_tmp;			\
+      struct wlinebuffer *_tmp;			\
       _tmp = (A);				\
       (A) = (B);				\
       (B) = _tmp;				\
@@ -259,11 +263,11 @@ size_opt (char const *opt, char const *msgid)
 /* Given a linebuffer LINE,
    return a pointer to the beginning of the line's field to be compared. */
 
-static char * _GL_ATTRIBUTE_PURE
-find_field (struct linebuffer const *line)
+static wchar_t * _GL_ATTRIBUTE_PURE
+find_field (struct wlinebuffer const *line)
 {
   size_t count;
-  char const *lp = line->buffer;
+  wchar_t const *lp = line->buffer;
   size_t size = line->length - 1;
   size_t i = 0;
 
@@ -286,22 +290,29 @@ find_field (struct linebuffer const *line)
    OLDLEN and NEWLEN are their lengths. */
 
 static bool
-different (char *old, char *new, size_t oldlen, size_t newlen)
+different (wchar_t *old, wchar_t *new, size_t oldlen, size_t newlen)
 {
   if (check_chars < oldlen)
     oldlen = check_chars;
   if (check_chars < newlen)
     newlen = check_chars;
 
+  wchar_t tmp1[oldlen], tmp2[newlen];
+  memcpy(tmp1, old, oldlen * sizeof(wchar_t));
+  memcpy(tmp2, new, newlen * sizeof(wchar_t));
+
   if (ignore_case)
     {
-      /* FIXME: This should invoke strcoll somehow.  */
-      return oldlen != newlen || memcasecmp (old, new, oldlen);
-    }
-  else if (hard_LC_COLLATE)
-    return xmemcoll (old, oldlen, new, newlen) != 0;
-  else
-    return oldlen != newlen || memcmp (old, new, oldlen);
+      // As sort -f does
+      for (size_t i = 0; i < oldlen; i++)
+        tmp1[i] = towupper(tmp1[i]);
+      for (size_t i = 0; i < newlen; i++)
+        tmp2[i] = towupper(tmp2[i]);
+     }
+
+  if (hard_LC_COLLATE)
+    return xwmemcoll (tmp1, oldlen, tmp2, newlen) != 0;
+  return oldlen != newlen || memcmp (tmp1, tmp2, oldlen * sizeof(wchar_t));
 }
 
 /* Output the line in linebuffer LINE to standard output
@@ -311,7 +322,7 @@ different (char *old, char *new, size_t oldlen, size_t newlen)
    LINECOUNT + 1 is the number of times that the line occurred. */
 
 static void
-writeline (struct linebuffer const *line,
+writeline (struct wlinebuffer const *line,
            bool match, uintmax_t linecount)
 {
   if (! (linecount == 0 ? output_unique
@@ -322,17 +333,18 @@ writeline (struct linebuffer const *line,
   if (countmode == count_occurrences)
     printf ("%7" PRIuMAX " ", linecount + 1);
 
-  fwrite (line->buffer, sizeof (char), line->length, stdout);
+  for (size_t i = 0; i < line->length; i++)
+    putwchar(line->buffer[i]);
 }
 
 /* Process input file INFILE with output to OUTFILE.
    If either is "-", use the standard I/O stream for it instead. */
 
 static void
-check_file (const char *infile, const char *outfile, char delimiter)
+check_file (const char *infile, const char *outfile, wchar_t delimiter)
 {
-  struct linebuffer lb1, lb2;
-  struct linebuffer *thisline, *prevline;
+  struct wlinebuffer lb1, lb2;
+  struct wlinebuffer *thisline, *prevline;
 
   if (! (STREQ (infile, "-") || freopen (infile, "r", stdin)))
     die (EXIT_FAILURE, errno, "%s", quotef (infile));
@@ -344,8 +356,8 @@ check_file (const char *infile, const char *outfile, char delimiter)
   thisline = &lb1;
   prevline = &lb2;
 
-  initbuffer (thisline);
-  initbuffer (prevline);
+  initwbuffer (thisline);
+  initwbuffer (prevline);
 
   /* The duplication in the following 'if' and 'else' blocks is an
      optimization to distinguish between when we can print input
@@ -364,17 +376,17 @@ check_file (const char *infile, const char *outfile, char delimiter)
   */
   if (output_unique && output_first_repeated && countmode == count_none)
     {
-      char *prevfield IF_LINT ( = NULL);
+      wchar_t *prevfield IF_LINT ( = NULL);
       size_t prevlen IF_LINT ( = 0);
       bool first_group_printed = false;
 
       while (!feof (stdin))
         {
-          char *thisfield;
+          wchar_t *thisfield;
           size_t thislen;
           bool new_group;
 
-          if (readlinebuffer_delim (thisline, stdin, delimiter) == 0)
+          if (readwlinebuffer_delim (thisline, stdin, delimiter) == 0)
             break;
 
           thisfield = find_field (thisline);
@@ -387,12 +399,12 @@ check_file (const char *infile, const char *outfile, char delimiter)
               && (grouping == GM_PREPEND || grouping == GM_BOTH
                   || (first_group_printed && (grouping == GM_APPEND
                                               || grouping == GM_SEPARATE))))
-            putchar (delimiter);
+            putwchar (delimiter);
 
           if (new_group || grouping != GM_NONE)
             {
-              fwrite (thisline->buffer, sizeof (char),
-                      thisline->length, stdout);
+              for (size_t i = 0; i < thisline->length; i++)
+                putwchar(thisline->buffer[i]);
 
               SWAP_LINES (prevline, thisline);
               prevfield = thisfield;
@@ -401,16 +413,16 @@ check_file (const char *infile, const char *outfile, char delimiter)
             }
         }
       if ((grouping == GM_BOTH || grouping == GM_APPEND) && first_group_printed)
-        putchar (delimiter);
+        putwchar (delimiter);
     }
   else
     {
-      char *prevfield;
+      wchar_t *prevfield;
       size_t prevlen;
       uintmax_t match_count = 0;
       bool first_delimiter = true;
 
-      if (readlinebuffer_delim (prevline, stdin, delimiter) == 0)
+      if (readwlinebuffer_delim (prevline, stdin, delimiter) == 0)
         goto closefiles;
       prevfield = find_field (prevline);
       prevlen = prevline->length - 1 - (prevfield - prevline->buffer);
@@ -418,9 +430,9 @@ check_file (const char *infile, const char *outfile, char delimiter)
       while (!feof (stdin))
         {
           bool match;
-          char *thisfield;
+          wchar_t *thisfield;
           size_t thislen;
-          if (readlinebuffer_delim (thisline, stdin, delimiter) == 0)
+          if (readwlinebuffer_delim (thisline, stdin, delimiter) == 0)
             {
               if (ferror (stdin))
                 goto closefiles;
@@ -450,7 +462,7 @@ check_file (const char *infile, const char *outfile, char delimiter)
                   if ((delimit_groups == DM_PREPEND)
                       || (delimit_groups == DM_SEPARATE
                           && !first_delimiter))
-                    putchar (delimiter);
+                    putwchar (delimiter);
                 }
             }
 
@@ -493,7 +505,7 @@ main (int argc, char **argv)
   enum Skip_field_option_type skip_field_option_type = SFO_NONE;
   unsigned int nfiles = 0;
   char const *file[2];
-  char delimiter = '\n';	/* change with --zero-terminated, -z */
+  wchar_t delimiter = L'\n';	/* change with --zero-terminated, -z */
   bool output_option_used = false;   /* if true, one of -u/-d/-D/-c was used */
 
   file[0] = file[1] = "-";
@@ -619,7 +631,7 @@ main (int argc, char **argv)
 
         case 's':
           skip_chars = size_opt (optarg,
-                                 N_("invalid number of bytes to skip"));
+                                 N_("invalid number of characters to skip"));
           break;
 
         case 'u':
@@ -629,11 +641,11 @@ main (int argc, char **argv)
 
         case 'w':
           check_chars = size_opt (optarg,
-                                  N_("invalid number of bytes to compare"));
+                                  N_("invalid number of characters to compare"));
           break;
 
         case 'z':
-          delimiter = '\0';
+          delimiter = L'\0';
           break;
 
         case_GETOPT_HELP_CHAR;

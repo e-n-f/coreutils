@@ -418,6 +418,7 @@ src_ginstall_CPPFLAGS = -DENABLE_MATCHPATHCON=1 $(AM_CPPFLAGS)
 
 src_expand_SOURCES = src/expand.c src/expand-common.c
 src_unexpand_SOURCES = src/unexpand.c src/expand-common.c
+src_uniq_SOURCES = src/uniq.c src/multibyte.c
 
 # Ensure we don't link against libcoreutils.a as that lib is
 # not compiled with -fPIC which causes issues on 64 bit at least
