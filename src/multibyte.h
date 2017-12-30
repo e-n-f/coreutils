@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <wchar.h>
+#include <wctype.h>
 
 /* A 'struct linebuffer' holds a line of multibyte text. */
 
@@ -37,5 +38,12 @@ ssize_t wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t 
                      wchar_t delim1, wchar_t delim2, FILE *stream);
 
 wchar_t *xwcsdup (wchar_t const *string);
+
+/* '\n' is considered a field separator with  --zero-terminated.  */
+static inline bool
+wfield_sep (wchar_t ch)
+{
+  return iswblank (ch) || ch == L'\n';
+}
 
 #endif

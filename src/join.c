@@ -21,6 +21,8 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <getopt.h>
+#include <wchar.h>
+#include <wctype.h>
 
 #include "system.h"
 #include "die.h"
@@ -34,11 +36,12 @@
 #include "xmemcoll.h"
 #include "xstrtol.h"
 #include "argmatch.h"
+#include "multibyte.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "join"
 
-#define AUTHORS proper_name ("Mike Haertel")
+#define AUTHORS proper_name ("Mike Haertel"), proper_name ("Eric Fischer")
 
 #define join system_join
 
@@ -65,14 +68,14 @@ struct outlist
 /* A field of a line.  */
 struct field
   {
-    char *beg;			/* First character in field.  */
+    wchar_t *beg;		/* First character in field.  */
     size_t len;			/* The length of the field.  */
   };
 
 /* A line read from an input file.  */
 struct line
   {
-    struct linebuffer buf;	/* The line itself.  */
+    struct wlinebuffer buf;	/* The line itself.  */
     size_t nfields;		/* Number of elements in 'fields'.  */
     size_t nfields_allocated;	/* Number of elements allocated for 'fields'. */
     struct field *fields;
@@ -139,7 +142,7 @@ static struct outlist *outlist_end = &outlist_head;
 /* Tab character separating fields.  If negative, fields are separated
    by any nonempty string of blanks, otherwise by exactly one
    tab character whose value (when cast to unsigned char) equals TAB.  */
-static int tab = -1;
+static wint_t tab = WEOF;
 
 /* If nonzero, check that the input is correctly ordered. */
 static enum
@@ -180,7 +183,7 @@ static bool ignore_case;
 static bool join_header_lines;
 
 /* The character marking end of line. Default to \n. */
-static char eolchar = '\n';
+static wchar_t eolchar = L'\n';
 
 void
 usage (int status)
@@ -254,7 +257,7 @@ warning message will be given.\n\
 /* Record a field in LINE, with location FIELD and size LEN.  */
 
 static void
-extract_field (struct line *line, char *field, size_t len)
+extract_field (struct line *line, wchar_t *field, size_t len)
 {
   if (line->nfields >= line->nfields_allocated)
     {
@@ -270,34 +273,34 @@ extract_field (struct line *line, char *field, size_t len)
 static void
 xfields (struct line *line)
 {
-  char *ptr = line->buf.buffer;
-  char const *lim = ptr + line->buf.length - 1;
+  wchar_t *ptr = line->buf.buffer;
+  wchar_t const *lim = ptr + line->buf.length - 1;
 
   if (ptr == lim)
     return;
 
   if (0 <= tab && tab != '\n')
     {
-      char *sep;
-      for (; (sep = memchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
+      wchar_t *sep;
+      for (; (sep = wmemchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
         extract_field (line, ptr, sep - ptr);
     }
   else if (tab < 0)
     {
       /* Skip leading blanks before the first field.  */
-      while (field_sep (*ptr))
+      while (wfield_sep (*ptr))
         if (++ptr == lim)
           return;
 
       do
         {
-          char *sep;
-          for (sep = ptr + 1; sep != lim && ! field_sep (*sep); sep++)
+          wchar_t *sep;
+          for (sep = ptr + 1; sep != lim && ! wfield_sep (*sep); sep++)
             continue;
           extract_field (line, ptr, sep - ptr);
           if (sep == lim)
             return;
-          for (ptr = sep + 1; ptr != lim && field_sep (*ptr); ptr++)
+          for (ptr = sep + 1; ptr != lim && wfield_sep (*ptr); ptr++)
             continue;
         }
       while (ptr != lim);
@@ -327,8 +330,8 @@ keycmp (struct line const *line1, struct line const *line2,
         size_t jf_1, size_t jf_2)
 {
   /* Start of field to compare in each file.  */
-  char *beg1;
-  char *beg2;
+  wchar_t *beg1;
+  wchar_t *beg2;
 
   size_t len1;
   size_t len2;		/* Length of fields to compare.  */
@@ -361,18 +364,22 @@ keycmp (struct line const *line1, struct line const *line2,
   if (len2 == 0)
     return 1;
 
+  wchar_t tmp1[len1], tmp2[len2];
+  memcpy(tmp1, beg1, len1 * sizeof(wchar_t));
+  memcpy(tmp2, beg2, len2 * sizeof(wchar_t));
+
   if (ignore_case)
     {
-      /* FIXME: ignore_case does not work with NLS (in particular,
-         with multibyte chars).  */
-      diff = memcasecmp (beg1, beg2, MIN (len1, len2));
+      // As sort -f does
+      for (size_t i = 0; i < len1; i++)
+        tmp1[i] = towupper(tmp1[i]);
+      for (size_t i = 0; i < len2; i++)
+        tmp2[i] = towupper(tmp2[i]);
     }
-  else
-    {
-      if (hard_LC_COLLATE)
-        return xmemcoll (beg1, len1, beg2, len2);
-      diff = memcmp (beg1, beg2, MIN (len1, len2));
-    }
+
+  if (hard_LC_COLLATE)
+    return xwmemcoll (tmp1, len1, tmp2, len2);
+  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof(wchar_t));
 
   if (diff)
     return diff;
@@ -405,7 +412,7 @@ check_order (const struct line *prev,
             {
               /* Exclude any trailing newline. */
               size_t len = current->buf.length;
-              if (0 < len && current->buf.buffer[len - 1] == '\n')
+              if (0 < len && current->buf.buffer[len - 1] == L'\n')
                 --len;
 
               /* If the offending line is longer than INT_MAX, output
@@ -414,7 +421,7 @@ check_order (const struct line *prev,
 
               error ((check_input_order == CHECK_ORDER_ENABLED
                       ? EXIT_FAILURE : 0),
-                     0, _("%s:%"PRIuMAX": is not sorted: %.*s"),
+                     0, _("%s:%"PRIuMAX": is not sorted: %.*ls"),
                      g_names[whatfile - 1], line_no[whatfile - 1],
                      (int) len, current->buf.buffer);
 
@@ -459,7 +466,7 @@ get_line (FILE *fp, struct line **linep, int which)
   else
     line = init_linep (linep);
 
-  if (! readlinebuffer_delim (&line->buf, fp, eolchar))
+  if (! readwlinebuffer_delim (&line->buf, fp, eolchar))
     {
       if (ferror (fp))
         die (EXIT_FAILURE, errno, _("read error"));
@@ -553,7 +560,12 @@ prfield (size_t n, struct line const *line)
     {
       len = line->fields[n].len;
       if (len)
-        fwrite (line->fields[n].beg, 1, len, stdout);
+        {
+          for (size_t i = 0; i < len; i++)
+            {
+              putwchar(line->fields[n].beg[i]);
+            }
+        }
       else if (empty_filler)
         fputs (empty_filler, stdout);
     }
@@ -568,16 +580,16 @@ prfields (struct line const *line, size_t join_field, size_t autocount)
 {
   size_t i;
   size_t nfields = autoformat ? autocount : line->nfields;
-  char output_separator = tab < 0 ? ' ' : tab;
+  wchar_t output_separator = tab < 0 ? L' ' : tab;
 
   for (i = 0; i < join_field && i < nfields; ++i)
     {
-      putchar (output_separator);
+      putwchar (output_separator);
       prfield (i, line);
     }
   for (i = join_field + 1; i < nfields; ++i)
     {
-      putchar (output_separator);
+      putwchar (output_separator);
       prfield (i, line);
     }
 }
@@ -588,7 +600,7 @@ static void
 prjoin (struct line const *line1, struct line const *line2)
 {
   const struct outlist *outlist;
-  char output_separator = tab < 0 ? ' ' : tab;
+  wint_t output_separator = tab < 0 ? L' ' : tab;
   size_t field;
   struct line const *line;
 
@@ -622,9 +634,9 @@ prjoin (struct line const *line1, struct line const *line2)
           o = o->next;
           if (o == NULL)
             break;
-          putchar (output_separator);
+          putwchar (output_separator);
         }
-      putchar (eolchar);
+      putwchar (eolchar);
     }
   else
     {
@@ -646,7 +658,7 @@ prjoin (struct line const *line1, struct line const *line2)
       prfields (line1, join_field_1, autocount_1);
       prfields (line2, join_field_2, autocount_2);
 
-      putchar (eolchar);
+      putwchar (eolchar);
     }
 }
 
@@ -1099,16 +1111,21 @@ main (int argc, char **argv)
 
         case 't':
           {
-            unsigned char newtab = optarg[0];
-            if (! newtab)
-              newtab = '\n'; /* '' => process the whole line.  */
-            else if (optarg[1])
+            wchar_t newtab;
+            if (optarg[0] == '\0')
+              newtab = L'\n'; /* '' => process the whole line.  */
+            else
               {
-                if (STREQ (optarg, "\\0"))
-                  newtab = '\0';
-                else
-                  die (EXIT_FAILURE, 0, _("multi-character tab %s"),
-                       quote (optarg));
+                mbstate_t mbs = { 0 };
+                size_t n = mbrtowc(&newtab, optarg, strlen(optarg), &mbs);
+                if (n == (size_t) -1 || n == (size_t) -2 || optarg[n] != '\0')
+                  {
+                    if (STREQ (optarg, "\\0"))
+                      newtab = L'\0';
+                    else
+                      die (EXIT_FAILURE, 0, _("multi-character tab %s"),
+                           quote (optarg));
+                  }
               }
             if (0 <= tab && tab != newtab)
               die (EXIT_FAILURE, 0, _("incompatible tabs"));
@@ -1117,7 +1134,7 @@ main (int argc, char **argv)
           break;
 
         case 'z':
-          eolchar = 0;
+          eolchar = L'\0';
           break;
 
         case NOCHECK_ORDER_OPTION:
