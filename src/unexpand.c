@@ -42,6 +42,7 @@
 #include "system.h"
 #include "die.h"
 #include "xstrndup.h"
+#include "multibyte.h"
 
 #include "expand-common.h"
 
@@ -112,7 +113,7 @@ unexpand (void)
   /* The array of pending blanks.  In non-POSIX locales, blanks can
      include characters other than spaces, so the blanks must be
      stored, not merely counted.  */
-  wchar_t *pending_blank;
+  cb *pending_blank;
 
   if (!fp)
     return;
@@ -120,12 +121,12 @@ unexpand (void)
   /* The worst case is a non-blank character, then one blank, then a
      tab stop, then MAX_COLUMN_WIDTH - 1 blanks, then a non-blank; so
      allocate MAX_COLUMN_WIDTH bytes to store the blanks.  */
-  pending_blank = xmalloc (max_column_width * sizeof(wchar_t));
+  pending_blank = xmalloc (max_column_width * sizeof(cb));
 
   while (true)
     {
       /* Input character, or EOF.  */
-      wint_t c;
+      cb c;
 
       /* If true, perform translations.  */
       bool convert = true;
@@ -154,17 +155,22 @@ unexpand (void)
       /* Number of pending columns of blanks.  */
       size_t pending = 0;
 
+      mbstate_t mbs = { 0 };
 
       /* Convert a line of text.  */
 
       do
         {
-          while ((c = getwc (fp)) == WEOF && (fp = next_file (fp)))
-            continue;
+          while ((c = fgetcb (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
+            {
+              mbstate_t nmbs = { 0 };
+              mbs = nmbs;
+              continue;
+            }
 
           if (convert)
             {
-              bool blank = !! iswblank (c);
+              bool blank = !! iswblank (c.c);
 
               if (blank)
                 {
@@ -181,12 +187,17 @@ unexpand (void)
                       if (next_tab_column < column)
                         die (EXIT_FAILURE, 0, _("input line is too long"));
 
-                      if (c == L'\t')
+                      if (c.c == L'\t')
                         {
                           column = next_tab_column;
 
                           if (pending)
-                            pending_blank[0] = L'\t';
+                            {
+                              cb tab;
+                              tab.c = L'\t';
+                              tab.isbyte = false;
+                              pending_blank[0] = tab;
+                            }
                         }
                       else
                         {
@@ -204,7 +215,10 @@ unexpand (void)
                             }
 
                           /* Replace the pending blanks by a tab or two.  */
-                          pending_blank[0] = c = L'\t';
+                          cb tab;
+                          tab.c = L'\t';
+                          tab.isbyte = false;
+                          pending_blank[0] = c = tab;
                         }
 
                       /* Discard pending blanks, unless it was a single
@@ -212,7 +226,7 @@ unexpand (void)
                       pending = one_blank_before_tab_stop;
                     }
                 }
-              else if (c == L'\b')
+              else if (c.c == L'\b')
                 {
                   /* Go back one column, and force recalculation of the
                      next tab stop.  */
@@ -230,10 +244,15 @@ unexpand (void)
               if (pending)
                 {
                   if (pending > 1 && one_blank_before_tab_stop)
-                    pending_blank[0] = L'\t';
+                    {
+                      cb tab;
+                      tab.c = L'\t';
+                      tab.isbyte = false;
+                      pending_blank[0] = tab;
+                    }
                   for (size_t i = 0; i < pending; i++)
                     {
-                      if (putwchar(pending_blank[i]) == WEOF)
+                      if (putcbyte(pending_blank[i]).c == WEOF)
                         die (EXIT_FAILURE, errno, _("write error"));
                     }
                   pending = 0;
@@ -244,16 +263,16 @@ unexpand (void)
               convert &= convert_entire_line || blank;
             }
 
-          if (c == WEOF)
+          if (c.c == WEOF)
             {
               free (pending_blank);
               return;
             }
 
-          if (putwchar (c) == WEOF)
+          if (putcbyte (c).c == WEOF)
             die (EXIT_FAILURE, errno, _("write error"));
         }
-      while (c != L'\n');
+      while (c.c != L'\n');
     }
 }
 

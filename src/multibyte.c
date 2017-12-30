@@ -675,3 +675,134 @@ wstrnumcmp (char const *a, char const *b,
 {
   return wnumcompare (a, b, decimal_point, thousands_sep);
 }
+
+
+/**** Binary-tolerant I/O */
+
+cb
+fgetcb(FILE *f, mbstate_t *mbs)
+{
+  char tmp[MB_CUR_MAX];
+
+  // May need to read as many as MB_CUR_MAX bytes ahead to get
+  // one complete multibyte character.
+
+  size_t i;
+  for (i = 0; i < MB_CUR_MAX; i++)
+    {
+      int c = getc(f);
+      if (c == EOF)
+        break;
+      tmp[i] = c;
+    }
+
+  // No bytes were read, so this is EOF
+
+  if (i == 0)
+    {
+      cb ret;
+
+      ret.c = WEOF;
+      ret.isbyte = false;
+      return ret;
+    }
+
+  wchar_t c;
+  mbstate_t mbs_copy = *mbs;
+  size_t n = mbrtowc(&c, tmp, i, &mbs_copy);
+
+  if (n == 0)
+    {
+      // NUL wide character. There is no guarantee about how many
+      // bytes from the source text it took to produce this NUL,
+      // so try again with more and more bytes until it works.
+
+      size_t j;
+      for (j = 1; j <= i; j++)
+        {
+          mbs_copy = *mbs;
+          if (mbrtowc(&c, tmp, j, &mbs_copy) == 0)
+            break;
+        }
+
+      // If j > i, then the decoding isn't reproducible and something
+      // is wrong. But still keep inside the array bounds;
+      if (j > i)
+        j = i;
+
+      // Put the unconsumed bytes back for the next read.
+      for (size_t k = i; k > j; k--)
+        {
+          ungetc(tmp[k - 1], f);
+        }
+
+      *mbs = mbs_copy;
+
+      cb ret;
+      ret.c = L'\0';
+      ret.isbyte = false;
+      return ret;
+    }
+  else if (n == (size_t) -1 || n == (size_t) -2)
+    {
+      // Decoding error. -2 (incomplete character) shouldn't be possible
+      // unless the file was truncated. Return the first byte as a byte.
+      // Leave the decoding state however it was, since nothing was
+      // decoded.
+
+      for (size_t k = i; k > 1; k--)
+        ungetc(tmp[k - 1], f);
+
+      cb ret;
+      ret.c = (unsigned char) tmp[0];
+      ret.isbyte = true;
+      return ret;
+    }
+  else
+    {
+      // Legitimate wide character. Put as many bytes as were not used back
+      // into the stream, and return the character.
+
+      for (size_t k = i; k > n; k--)
+        ungetc(tmp[k - 1], f);
+
+      *mbs = mbs_copy;
+
+      cb ret;
+      ret.c = c;
+      ret.isbyte = false;
+      return ret;
+    }
+}
+
+cb
+fputcb(cb c, FILE *f)
+{
+  if (c.isbyte)
+    {
+      int ret = putc(c.c, f);
+      if (ret == EOF)
+        {
+          c.c = WEOF;
+          c.isbyte = false;
+        }
+
+      return c;
+    }
+  else
+    {
+      c.c = putwc(c.c, f);
+      return c;
+    }
+}
+
+cb
+putcbyte(cb c)
+{
+  return fputcb(c, stdout);
+}
+
+cb getcbyte(mbstate_t *mbs)
+{
+  return fgetcb(stdin, mbs);
+}

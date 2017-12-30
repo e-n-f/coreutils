@@ -61,4 +61,14 @@ mb_error mbrpeek0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
 
 int wstrnumcmp (char const *, char const *, wint_t, wint_t);
 
+typedef struct cb {
+	wint_t c;
+	bool isbyte;
+} cb;
+
+cb fgetcb(FILE *f, mbstate_t *mbs);
+cb fputcb(cb c, FILE *f);
+cb putcbyte(cb c);
+cb getcbyte(mbstate_t *mbs);
+
 #endif

@@ -41,6 +41,7 @@
 #include "system.h"
 #include "die.h"
 #include "xstrndup.h"
+#include "multibyte.h"
 
 #include "expand-common.h"
 
@@ -106,7 +107,7 @@ expand (void)
   while (true)
     {
       /* Input character, or EOF.  */
-      wint_t c;
+      cb c;
 
       /* If true, perform translations.  */
       bool convert = true;
@@ -121,17 +122,23 @@ expand (void)
       /* Index in TAB_LIST of next tab stop to examine.  */
       size_t tab_index = 0;
 
+      mbstate_t mbs = { 0 };
+
 
       /* Convert a line of text.  */
 
       do
         {
-          while ((c = getwc (fp)) == WEOF && (fp = next_file (fp)))
-            continue;
+          while ((c = fgetcb (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
+            {
+              mbstate_t nmbs = { 0 };
+              mbs = nmbs;
+              continue;
+            }
 
           if (convert)
             {
-              if (c == L'\t')
+              if (c.c == L'\t')
                 {
                   /* Column the next input tab stop is on.  */
                   uintmax_t next_tab_column;
@@ -150,9 +157,9 @@ expand (void)
                     if (putwchar (L' ') == WEOF)
                       die (EXIT_FAILURE, errno, _("write error"));
 
-                  c = L' ';
+                  c.c = L' ';
                 }
-              else if (c == L'\b')
+              else if (c.c == L'\b')
                 {
                   /* Go back one column, and force recalculation of the
                      next tab stop.  */
@@ -166,16 +173,16 @@ expand (void)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
                 }
 
-              convert &= convert_entire_line || !! iswblank (c);
+              convert &= convert_entire_line || !! iswblank (c.c);
             }
 
-          if (c == WEOF)
+          if (c.c == WEOF)
             return;
 
-          if (putwchar (c) == WEOF)
+          if (putcbyte (c).c == WEOF)
             die (EXIT_FAILURE, errno, _("write error"));
         }
-      while (c != L'\n');
+      while (c.c != L'\n');
     }
 }
 
