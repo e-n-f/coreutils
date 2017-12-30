@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <sys/types.h>
+#include <wctype.h>
 #include "system.h"
 #include "die.h"
 #include "xstrndup.h"
@@ -46,7 +47,7 @@
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "expand"
 
-#define AUTHORS proper_name ("David MacKenzie")
+#define AUTHORS proper_name ("David MacKenzie"), proper_name ("Eric Fischer")
 
 static char const shortopts[] = "it:0::1::2::3::4::5::6::7::8::9::";
 
@@ -105,7 +106,7 @@ expand (void)
   while (true)
     {
       /* Input character, or EOF.  */
-      int c;
+      wint_t c;
 
       /* If true, perform translations.  */
       bool convert = true;
@@ -125,12 +126,12 @@ expand (void)
 
       do
         {
-          while ((c = getc (fp)) < 0 && (fp = next_file (fp)))
+          while ((c = getwc (fp)) == WEOF && (fp = next_file (fp)))
             continue;
 
           if (convert)
             {
-              if (c == '\t')
+              if (c == L'\t')
                 {
                   /* Column the next input tab stop is on.  */
                   uintmax_t next_tab_column;
@@ -146,12 +147,12 @@ expand (void)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
 
                   while (++column < next_tab_column)
-                    if (putchar (' ') < 0)
+                    if (putwchar (L' ') == WEOF)
                       die (EXIT_FAILURE, errno, _("write error"));
 
-                  c = ' ';
+                  c = L' ';
                 }
-              else if (c == '\b')
+              else if (c == L'\b')
                 {
                   /* Go back one column, and force recalculation of the
                      next tab stop.  */
@@ -165,16 +166,16 @@ expand (void)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
                 }
 
-              convert &= convert_entire_line || !! isblank (c);
+              convert &= convert_entire_line || !! iswblank (c);
             }
 
-          if (c < 0)
+          if (c == WEOF)
             return;
 
-          if (putchar (c) < 0)
+          if (putwchar (c) == WEOF)
             die (EXIT_FAILURE, errno, _("write error"));
         }
-      while (c != '\n');
+      while (c != L'\n');
     }
 }
 

@@ -29,4 +29,8 @@ struct wlinebuffer *readwlinebuffer_delim (struct wlinebuffer *linebuffer,
 
 int xwmemcoll (wchar_t *, size_t, wchar_t *, size_t);
 
+const char *wquote (const wchar_t *s);
+
+extern wchar_t *xwcsndup (const wchar_t *string, size_t n);
+
 #endif

@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* If true, convert blanks even after nonblank characters have been
    read on the line.  */
@@ -42,6 +42,11 @@ add_tab_stop (uintmax_t tabval);
    to the list of tab stops.  */
 extern void
 parse_tab_stops (char const *stops);
+
+/* Add the comma or blank separated list of tab stops STOPS
+   to the list of tab stops.  */
+extern void
+parse_tab_stops_wc (wchar_t const *stops);
 
 /* TODO: Document */
 extern uintmax_t

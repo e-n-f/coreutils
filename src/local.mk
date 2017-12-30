@@ -416,8 +416,8 @@ src_base32_CPPFLAGS = -DBASE_TYPE=32 $(AM_CPPFLAGS)
 
 src_ginstall_CPPFLAGS = -DENABLE_MATCHPATHCON=1 $(AM_CPPFLAGS)
 
-src_expand_SOURCES = src/expand.c src/expand-common.c
-src_unexpand_SOURCES = src/unexpand.c src/expand-common.c
+src_expand_SOURCES = src/expand.c src/expand-common.c src/multibyte.c
+src_unexpand_SOURCES = src/unexpand.c src/expand-common.c src/multibyte.c
 src_uniq_SOURCES = src/uniq.c src/multibyte.c
 
 # Ensure we don't link against libcoreutils.a as that lib is

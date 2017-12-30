@@ -15,8 +15,9 @@
 #include "error.h"
 #include "exitfail.h"
 #include "quotearg.h"
+#include "quote.h"
 
-/**** Wide version of linebuffer.h */
+/**** Wide version of linebuffer.c */
 
 /* Initialize wlinebuffer LINEBUFFER for use. */
 
@@ -76,7 +77,7 @@ readwlinebuffer_delim (struct wlinebuffer *linebuffer, FILE *stream,
   return linebuffer;
 }
 
-/**** Wide version of memcoll.h */
+/**** Wide version of memcoll.c */
 
 /* Compare S1 (with size S1SIZE) and S2 (with length S2SIZE) according
    to the LC_COLLATE locale.  S1 and S2 are both blocks of memory with
@@ -147,7 +148,7 @@ wmemcoll (wchar_t *s1, size_t s1len, wchar_t *s2, size_t s2len)
   return diff;
 }
 
-/**** Wide version of xmemcoll.h */
+/**** Wide version of xmemcoll.c */
 
 static void
 wcollate_error (int collation_errno,
@@ -175,4 +176,39 @@ xwmemcoll (wchar_t *s1, size_t s1len, wchar_t *s2, size_t s2len)
   if (collation_errno)
     wcollate_error (collation_errno, s1, s1len, s2, s2len);
   return diff;
+}
+
+/**** Wide version of quotearg.c */
+
+const char *
+wquote (const wchar_t *s)
+{
+  size_t bytes = MB_LEN_MAX * (wcslen(s) + 1);
+  char tmp[bytes];
+
+  size_t n = wcstombs(tmp, s, bytes);
+  return quote(tmp);
+}
+
+/**** Wide version of xstrndup.c */
+
+/* Return a newly allocated copy of at most N characters of STRING.
+   In other words, return a copy of the initial segment of length N of
+   STRING.  */
+
+wchar_t *
+xwcsndup (const wchar_t *string, size_t n)
+{
+  size_t len = wcslen(string);
+  if (len > n)
+    {
+      len = n;
+    }
+
+  wchar_t *s = xmalloc ((n + 1) * sizeof(wchar_t));
+  if (! s)
+    xalloc_die ();
+  wcsncpy(s, string, n);
+  s[n] = L'\0';
+  return s;
 }
