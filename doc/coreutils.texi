@@ -2727,7 +2727,7 @@ The program accepts the following options.  Also see @ref{Common options}.
 @opindex --bytes
 Count bytes rather than columns, so that tabs, backspaces, and carriage
 returns are each counted as taking up one column, just like other
-characters.
+bytes. A character in a multibyte locale can count as several bytes.
 
 @item -s
 @itemx --spaces
@@ -5919,8 +5919,8 @@ string between ranges of selected bytes.
 @opindex -c
 @opindex --characters
 Select for printing only the characters in positions listed in
-@var{character-list}.  The same as @option{-b} for now, but
-internationalization will change that.  Tabs and backspaces are
+@var{character-list}.  In multibyte locales, a character may be
+more than one byte.  Tabs and backspaces are
 treated like any other character; they take up 1 character.  If an
 output delimiter is specified, (see the description of
 @option{--output-delimiter}), then output that string between ranges
@@ -5959,16 +5959,16 @@ join -a1 -o 1.2,1.1 - /dev/null # reorder the first two fields
 @end verbatim
 @end example
 
-@item -d @var{input_delim_byte}
-@itemx --delimiter=@var{input_delim_byte}
+@item -d @var{input_delim_char}
+@itemx --delimiter=@var{input_delim_char}
 @opindex -d
 @opindex --delimiter
-With @option{-f}, use the first byte of @var{input_delim_byte} as
+With @option{-f}, use the first character of @var{input_delim_char} as
 the input fields separator (default is TAB).
 
 @item -n
 @opindex -n
-Do not split multi-byte characters (no-op for now).
+Do not split multi-byte characters when using @option{-b} (no-op for now).
 
 @item -s
 @itemx --only-delimited
@@ -6669,13 +6669,14 @@ The @option{--complement} (@option{-c}, @option{-C}) option replaces
 @var{set1} with its
 complement (all of the characters that are not in @var{set1}).
 
-Currently @command{tr} fully supports only single-byte characters.
-Eventually it will support multibyte characters; when it does, the
+The intent of @option{-C} and @option{-c} is that
 @option{-C} option will cause it to complement the set of characters,
 whereas @option{-c} will cause it to complement the set of values.
 This distinction will matter only when some values are not characters,
 and this is possible only in locales using multibyte encodings when
-the input contains encoding errors.
+the input contains encoding errors. As it is now,
+@command{tr} rejects invalid character encodings, and
+@option{-C} and @option{-c} do the same thing.
 
 The program accepts the @option{--help} and @option{--version}
 options.  @xref{Common options}.  Options must precede operands.
