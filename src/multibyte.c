@@ -356,11 +356,11 @@ xcbmemcoll (cb *s1, size_t s1len, cb *s2, size_t s2len)
 
   int cmp = xwmemcoll (tmp1, s1len, tmp2, s2len);
   if (cmp != 0)
-    return cmp;;
+    return cmp;
 
   if (s1len < s2len)
     return -1;
-  if (s2len > s1len)
+  if (s1len > s2len)
     return 1;
 
   for (size_t i = 0; i < s1len; i++)
