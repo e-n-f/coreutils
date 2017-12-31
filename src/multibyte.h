@@ -19,16 +19,16 @@ cb ungetcb(cb c, FILE *f, mbstate_t *mbs);
 
 /* A 'struct linebuffer' holds a line of multibyte text. */
 
-struct wlinebuffer
+struct cblinebuffer
 {
   size_t size;                  /* Allocated. */
   size_t length;                /* Used. */
-  wchar_t *buffer;
+  cb *buffer;
 };
 
-/* Initialize wlinebuffer LINEBUFFER for use. */
+/* Initialize cblinebuffer LINEBUFFER for use. */
 
-void initwbuffer (struct wlinebuffer *linebuffer);
+void initcbbuffer (struct cblinebuffer *linebuffer);
 
 /* Read an arbitrarily long line of text from STREAM into LINEBUFFER.
    Consider lines to be terminated by DELIMITER.
@@ -36,12 +36,15 @@ void initwbuffer (struct wlinebuffer *linebuffer);
    the last character in the file.  Do not NUL-terminate.
    Return LINEBUFFER, except at end of file return NULL.  */
 
-struct wlinebuffer *readwlinebuffer_delim (struct wlinebuffer *linebuffer,
-                                         FILE *stream, wchar_t delimiter);
+struct cblinebuffer *readcblinebuffer_delim (struct cblinebuffer *linebuffer,
+                                         FILE *stream, wchar_t delimiter, mbstate_t *mbs);
 
 int xwmemcoll (wchar_t *, size_t, wchar_t *, size_t);
+int xcbmemcoll (cb *, size_t, cb *, size_t);
+cb *cbmemchr (cb *, wchar_t, size_t);
 
 const char *wquote (const wchar_t *s);
+const char *cbnstr (const cb *s, size_t n);
 
 extern wchar_t *xwcsndup (const wchar_t *string, size_t n);
 

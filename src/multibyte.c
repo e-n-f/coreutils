@@ -180,10 +180,10 @@ ungetcb(cb c, FILE *f, mbstate_t *mbs)
 
 /**** Wide version of linebuffer.c */
 
-/* Initialize wlinebuffer LINEBUFFER for use. */
+/* Initialize cblinebuffer LINEBUFFER for use. */
 
 void
-initwbuffer (struct wlinebuffer *linebuffer)
+initcbbuffer (struct cblinebuffer *linebuffer)
 {
   memset (linebuffer, 0, sizeof *linebuffer);
 }
@@ -199,40 +199,41 @@ initwbuffer (struct wlinebuffer *linebuffer)
    invoking ferror (stream).
    Otherwise, return LINEBUFFER.  */
 
-struct wlinebuffer *
-readwlinebuffer_delim (struct wlinebuffer *linebuffer, FILE *stream,
-                       wchar_t delimiter)
+struct cblinebuffer *
+readcblinebuffer_delim (struct cblinebuffer *linebuffer, FILE *stream,
+                       wchar_t delimiter, mbstate_t *mbs)
 {
-  int c;
-  wchar_t *buffer = linebuffer->buffer;
-  wchar_t *p = linebuffer->buffer;
-  wchar_t *end = buffer + linebuffer->size; /* Sentinel. */
+  cb c;
+  cb *buffer = linebuffer->buffer;
+  cb *p = linebuffer->buffer;
+  cb *end = buffer + linebuffer->size; /* Sentinel. */
 
   if (feof (stream))
     return NULL;
 
   do
     {
-      c = getwc (stream);
-      if (c == WEOF)
+      c = fgetcb (stream, mbs);
+      if (c.c == WEOF)
         {
           if (p == buffer || ferror (stream))
             return NULL;
-          if (p[-1] == delimiter)
+          if (p[-1].c == delimiter)
             break;
-          c = delimiter;
+          c.c = delimiter;
+          c.isbyte = false;
         }
       if (p == end)
         {
           size_t oldsize = linebuffer->size;
-          buffer = x2nrealloc (buffer, &linebuffer->size, sizeof(wchar_t));
+          buffer = x2nrealloc (buffer, &linebuffer->size, sizeof(cb));
           p = buffer + oldsize;
           linebuffer->buffer = buffer;
           end = buffer + linebuffer->size;
         }
       *p++ = c;
     }
-  while (c != delimiter);
+  while (c.c != delimiter);
 
   linebuffer->length = p - buffer;
   return linebuffer;
@@ -339,6 +340,35 @@ xwmemcoll (wchar_t *s1, size_t s1len, wchar_t *s2, size_t s2len)
   return diff;
 }
 
+int
+xcbmemcoll (cb *s1, size_t s1len, cb *s2, size_t s2len)
+{
+  wchar_t tmp1[s1len];
+  wchar_t tmp2[s2len];
+
+  for (size_t i = 0; i < s1len; i++)
+    tmp1[i] = s1[i].c;
+  for (size_t i = 0; i < s2len; i++)
+    tmp2[i] = s2[i].c;
+
+  int cmp = xwmemcoll (tmp1, s1len, tmp2, s2len);
+  if (cmp != 0)
+    return cmp;;
+
+  if (s1len < s2len)
+    return -1;
+  if (s2len > s1len)
+    return 1;
+
+  for (size_t i = 0; i < s1len; i++)
+    {
+      if (s1[i].isbyte != s2[i].isbyte)
+        return s1[i].isbyte - s2[i].isbyte;
+    }
+
+  return 0;
+}
+
 /**** Wide version of quotearg.c */
 
 const char *
@@ -349,6 +379,28 @@ wquote (const wchar_t *s)
 
   size_t n = wcstombs(tmp, s, bytes);
   return quote(tmp);
+}
+
+const char *
+cbnstr (const cb *s, size_t n)
+{
+  size_t bytes = MB_LEN_MAX * (n + 1);
+  char tmp[bytes];
+  size_t out = 0;
+
+  for (size_t i = 0; i < n; i++)
+    {
+      if (s[i].isbyte)
+        tmp[out++] = s[i].c;
+      else
+        {
+          int n = wctomb(tmp + out, s[i].c);
+          if (n > 0)
+            out += n;
+        }
+    }
+  tmp[out] = '\0';
+  return xstrdup(tmp);
 }
 
 /**** Wide version of xstrndup.c */
@@ -832,6 +884,20 @@ wstrnumcmp (char const *a, char const *b,
            wint_t decimal_point, wint_t thousands_sep)
 {
   return wnumcompare (a, b, decimal_point, thousands_sep);
+}
+
+
+/**** CB/Wide version of memchr */
+
+cb *
+cbmemchr(cb *haystack, wchar_t needle, size_t n)
+{
+  for (size_t i = 0; i < n; i++) {
+    if (haystack[i].c == needle) {
+      return haystack + i;
+    }
+  }
+  return NULL;
 }
 
 

@@ -68,14 +68,14 @@ struct outlist
 /* A field of a line.  */
 struct field
   {
-    wchar_t *beg;		/* First character in field.  */
+    cb *beg;		/* First character in field.  */
     size_t len;			/* The length of the field.  */
   };
 
 /* A line read from an input file.  */
 struct line
   {
-    struct wlinebuffer buf;	/* The line itself.  */
+    struct cblinebuffer buf;	/* The line itself.  */
     size_t nfields;		/* Number of elements in 'fields'.  */
     size_t nfields_allocated;	/* Number of elements allocated for 'fields'. */
     struct field *fields;
@@ -257,7 +257,7 @@ warning message will be given.\n\
 /* Record a field in LINE, with location FIELD and size LEN.  */
 
 static void
-extract_field (struct line *line, wchar_t *field, size_t len)
+extract_field (struct line *line, cb *field, size_t len)
 {
   if (line->nfields >= line->nfields_allocated)
     {
@@ -273,34 +273,34 @@ extract_field (struct line *line, wchar_t *field, size_t len)
 static void
 xfields (struct line *line)
 {
-  wchar_t *ptr = line->buf.buffer;
-  wchar_t const *lim = ptr + line->buf.length - 1;
+  cb *ptr = line->buf.buffer;
+  cb const *lim = ptr + line->buf.length - 1;
 
   if (ptr == lim)
     return;
 
   if (0 <= tab && tab != '\n')
     {
-      wchar_t *sep;
-      for (; (sep = wmemchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
+      cb *sep;
+      for (; (sep = cbmemchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
         extract_field (line, ptr, sep - ptr);
     }
   else if (tab < 0)
     {
       /* Skip leading blanks before the first field.  */
-      while (wfield_sep (*ptr))
+      while (wfield_sep (ptr->c))
         if (++ptr == lim)
           return;
 
       do
         {
-          wchar_t *sep;
-          for (sep = ptr + 1; sep != lim && ! wfield_sep (*sep); sep++)
+          cb *sep;
+          for (sep = ptr + 1; sep != lim && ! wfield_sep (sep->c); sep++)
             continue;
           extract_field (line, ptr, sep - ptr);
           if (sep == lim)
             return;
-          for (ptr = sep + 1; ptr != lim && wfield_sep (*ptr); ptr++)
+          for (ptr = sep + 1; ptr != lim && wfield_sep (ptr->c); ptr++)
             continue;
         }
       while (ptr != lim);
@@ -330,8 +330,8 @@ keycmp (struct line const *line1, struct line const *line2,
         size_t jf_1, size_t jf_2)
 {
   /* Start of field to compare in each file.  */
-  wchar_t *beg1;
-  wchar_t *beg2;
+  cb *beg1;
+  cb *beg2;
 
   size_t len1;
   size_t len2;		/* Length of fields to compare.  */
@@ -364,22 +364,30 @@ keycmp (struct line const *line1, struct line const *line2,
   if (len2 == 0)
     return 1;
 
-  wchar_t tmp1[len1], tmp2[len2];
-  memcpy(tmp1, beg1, len1 * sizeof(wchar_t));
-  memcpy(tmp2, beg2, len2 * sizeof(wchar_t));
+  cb tmp1[len1], tmp2[len2];
+  memcpy(tmp1, beg1, len1 * sizeof(cb));
+  memcpy(tmp2, beg2, len2 * sizeof(cb));
 
   if (ignore_case)
     {
       // As sort -f does
       for (size_t i = 0; i < len1; i++)
-        tmp1[i] = towupper(tmp1[i]);
+        {
+          wchar_t c = towupper(tmp1[i].c);
+          if (!tmp1[i].isbyte || c <= UCHAR_MAX)
+            tmp1[i].c = c;
+        }
       for (size_t i = 0; i < len2; i++)
-        tmp2[i] = towupper(tmp2[i]);
+        {
+          wchar_t c = towupper(tmp2[i].c);
+          if (!tmp2[i].isbyte || c <= UCHAR_MAX)
+            tmp2[i].c = c;
+        }
     }
 
   if (hard_LC_COLLATE)
-    return xwmemcoll (tmp1, len1, tmp2, len2);
-  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof(wchar_t));
+    return xcbmemcoll (tmp1, len1, tmp2, len2);
+  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof(cb));
 
   if (diff)
     return diff;
@@ -412,7 +420,7 @@ check_order (const struct line *prev,
             {
               /* Exclude any trailing newline. */
               size_t len = current->buf.length;
-              if (0 < len && current->buf.buffer[len - 1] == L'\n')
+              if (0 < len && current->buf.buffer[len - 1].c == L'\n')
                 --len;
 
               /* If the offending line is longer than INT_MAX, output
@@ -421,9 +429,9 @@ check_order (const struct line *prev,
 
               error ((check_input_order == CHECK_ORDER_ENABLED
                       ? EXIT_FAILURE : 0),
-                     0, _("%s:%"PRIuMAX": is not sorted: %.*ls"),
+                     0, _("%s:%"PRIuMAX": is not sorted: %s"),
                      g_names[whatfile - 1], line_no[whatfile - 1],
-                     (int) len, current->buf.buffer);
+                     cbnstr(current->buf.buffer, len));
 
               /* If we get to here, the message was merely a warning.
                  Arrange to issue it only once per file.  */
@@ -451,7 +459,7 @@ init_linep (struct line **linep)
    Return true if successful.  */
 
 static bool
-get_line (FILE *fp, struct line **linep, int which)
+get_line (FILE *fp, struct line **linep, int which, mbstate_t *mbs)
 {
   struct line *line = *linep;
 
@@ -466,7 +474,7 @@ get_line (FILE *fp, struct line **linep, int which)
   else
     line = init_linep (linep);
 
-  if (! readwlinebuffer_delim (&line->buf, fp, eolchar))
+  if (! readcblinebuffer_delim (&line->buf, fp, eolchar, mbs))
     {
       if (ferror (fp))
         die (EXIT_FAILURE, errno, _("read error"));
@@ -508,7 +516,7 @@ initseq (struct seq *seq)
 /* Read a line from FP and add it to SEQ.  Return true if successful.  */
 
 static bool
-getseq (FILE *fp, struct seq *seq, int whichfile)
+getseq (FILE *fp, struct seq *seq, int whichfile, mbstate_t *mbs)
 {
   if (seq->count == seq->alloc)
     {
@@ -517,7 +525,7 @@ getseq (FILE *fp, struct seq *seq, int whichfile)
         seq->lines[i] = NULL;
     }
 
-  if (get_line (fp, &seq->lines[seq->count], whichfile))
+  if (get_line (fp, &seq->lines[seq->count], whichfile, mbs))
     {
       ++seq->count;
       return true;
@@ -528,12 +536,12 @@ getseq (FILE *fp, struct seq *seq, int whichfile)
 /* Read a line from FP and add it to SEQ, as the first item if FIRST is
    true, else as the next.  */
 static bool
-advance_seq (FILE *fp, struct seq *seq, bool first, int whichfile)
+advance_seq (FILE *fp, struct seq *seq, bool first, int whichfile, mbstate_t *mbs)
 {
   if (first)
     seq->count = 0;
 
-  return getseq (fp, seq, whichfile);
+  return getseq (fp, seq, whichfile, mbs);
 }
 
 static void
@@ -563,7 +571,7 @@ prfield (size_t n, struct line const *line)
         {
           for (size_t i = 0; i < len; i++)
             {
-              putwchar(line->fields[n].beg[i]);
+              putcbyte (line->fields[n].beg[i]);
             }
         }
       else if (empty_filler)
@@ -674,11 +682,13 @@ join (FILE *fp1, FILE *fp2)
   fadvise (fp1, FADVISE_SEQUENTIAL);
   fadvise (fp2, FADVISE_SEQUENTIAL);
 
+  mbstate_t mbs1 = { 0 }, mbs2 = { 0 };
+
   /* Read the first line of each file.  */
   initseq (&seq1);
-  getseq (fp1, &seq1, 1);
+  getseq (fp1, &seq1, 1, &mbs1);
   initseq (&seq2);
-  getseq (fp2, &seq2, 2);
+  getseq (fp2, &seq2, 2, &mbs2);
 
   if (autoformat)
     {
@@ -694,9 +704,9 @@ join (FILE *fp1, FILE *fp2)
       prevline[0] = NULL;
       prevline[1] = NULL;
       if (seq1.count)
-        advance_seq (fp1, &seq1, true, 1);
+        advance_seq (fp1, &seq1, true, 1, &mbs1);
       if (seq2.count)
-        advance_seq (fp2, &seq2, true, 2);
+        advance_seq (fp2, &seq2, true, 2, &mbs2);
     }
 
   while (seq1.count && seq2.count)
@@ -707,7 +717,7 @@ join (FILE *fp1, FILE *fp2)
         {
           if (print_unpairables_1)
             prjoin (seq1.lines[0], &uni_blank);
-          advance_seq (fp1, &seq1, true, 1);
+          advance_seq (fp1, &seq1, true, 1, &mbs1);
           seen_unpairable = true;
           continue;
         }
@@ -715,7 +725,7 @@ join (FILE *fp1, FILE *fp2)
         {
           if (print_unpairables_2)
             prjoin (&uni_blank, seq2.lines[0]);
-          advance_seq (fp2, &seq2, true, 2);
+          advance_seq (fp2, &seq2, true, 2, &mbs2);
           seen_unpairable = true;
           continue;
         }
@@ -724,7 +734,7 @@ join (FILE *fp1, FILE *fp2)
          match the current line from file2.  */
       eof1 = false;
       do
-        if (!advance_seq (fp1, &seq1, false, 1))
+        if (!advance_seq (fp1, &seq1, false, 1, &mbs1))
           {
             eof1 = true;
             ++seq1.count;
@@ -737,7 +747,7 @@ join (FILE *fp1, FILE *fp2)
          match the current line from file1.  */
       eof2 = false;
       do
-        if (!advance_seq (fp2, &seq2, false, 2))
+        if (!advance_seq (fp2, &seq2, false, 2, &mbs2))
           {
             eof2 = true;
             ++seq2.count;
@@ -790,7 +800,7 @@ join (FILE *fp1, FILE *fp2)
         prjoin (seq1.lines[0], &uni_blank);
       if (seq2.count)
         seen_unpairable = true;
-      while (get_line (fp1, &line, 1))
+      while (get_line (fp1, &line, 1, &mbs1))
         {
           if (print_unpairables_1)
             prjoin (line, &uni_blank);
@@ -805,7 +815,7 @@ join (FILE *fp1, FILE *fp2)
         prjoin (&uni_blank, seq2.lines[0]);
       if (seq1.count)
         seen_unpairable = true;
-      while (get_line (fp2, &line, 2))
+      while (get_line (fp2, &line, 2, &mbs2))
         {
           if (print_unpairables_2)
             prjoin (&uni_blank, line);
