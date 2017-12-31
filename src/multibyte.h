@@ -15,7 +15,7 @@ cb fgetcb(FILE *f, mbstate_t *mbs);
 cb fputcb(cb c, FILE *f);
 cb putcbyte(cb c);
 cb getcbyte(mbstate_t *mbs);
-cb ungetcb(cb c, FILE *f, mbstate_t *mbs);
+cb fpeekcb(FILE *f, mbstate_t *mbs);
 
 /* A 'struct linebuffer' holds a line of multibyte text. */
 

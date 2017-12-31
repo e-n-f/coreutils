@@ -2132,8 +2132,9 @@ read_rest_of_line (COLUMN *p)
     {
       if (c.c == L'\f')
         {
-          if ((c = fgetcb (f, &p->mbs)).c != L'\n')
-            ungetcb (c, f, &p->mbs);
+          c = fpeekcb (p->fp, &p->mbs);
+          if (c.c == L'\n')
+            c = fgetcb (p->fp, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);
@@ -2199,8 +2200,9 @@ skip_read (COLUMN *p, int column_number)
                 p->full_page_printed = false;
             }
 
-          if ((c = fgetcb (f, &p->mbs)).c != L'\n')
-            ungetcb (c, f, &p->mbs);
+          c = fpeekcb (f, &p->mbs);
+          if (c.c == L'\n')
+            c = fgetcb (f, &p->mbs);
           hold_file (p);
           break;
         }
@@ -2462,8 +2464,9 @@ read_line (COLUMN *p)
   switch (c.c)
     {
     case L'\f':
-      if ((c = fgetcb (p->fp, &p->mbs)).c != L'\n')
-        ungetcb (c, p->fp, &p->mbs);
+      c = fpeekcb (p->fp, &p->mbs);
+      if (c.c == L'\n')
+        c = fgetcb (p->fp, &p->mbs);
       FF_only = true;
       if (print_a_header && !storing_columns)
         {
@@ -2542,8 +2545,9 @@ read_line (COLUMN *p)
         case L'\n':
           return true;
         case L'\f':
-          if ((c = fgetcb (p->fp, &p->mbs)).c != L'\n')
-            ungetcb (c, p->fp, &p->mbs);
+          c = fpeekcb (p->fp, &p->mbs);
+          if (c.c == L'\n')
+            c = fgetcb (p->fp, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);

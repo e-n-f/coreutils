@@ -28,8 +28,8 @@
 
 /**** Binary-tolerant I/O */
 
-cb
-fgetcb(FILE *f, mbstate_t *mbs)
+static cb
+fgetcb_internal(FILE *f, mbstate_t *mbs, bool peek)
 {
   char tmp[MB_CUR_MAX];
 
@@ -62,7 +62,7 @@ fgetcb(FILE *f, mbstate_t *mbs)
 
   if (n == 0)
     {
-      // NUL wide character. There is no guarantee about how many
+      // NUL wide character. There is no information about how many
       // bytes from the source text it took to produce this NUL,
       // so try again with more and more bytes until it works.
 
@@ -79,13 +79,21 @@ fgetcb(FILE *f, mbstate_t *mbs)
       if (j > i)
         j = i;
 
-      // Put the unconsumed bytes back for the next read.
-      for (size_t k = i; k > j; k--)
+      if (peek)
         {
-          ungetc((unsigned char) tmp[k - 1], f);
+          for (size_t k = i; k > 0; k--)
+            ungetc((unsigned char) tmp[k - 1], f);
         }
+      else
+        {
+          // Put the unconsumed bytes back for the next read.
+          for (size_t k = i; k > j; k--)
+            {
+              ungetc((unsigned char) tmp[k - 1], f);
+            }
 
-      *mbs = mbs_copy;
+          *mbs = mbs_copy;
+        }
 
       cb ret;
       ret.c = L'\0';
@@ -99,8 +107,16 @@ fgetcb(FILE *f, mbstate_t *mbs)
       // Leave the decoding state however it was, since nothing was
       // decoded.
 
-      for (size_t k = i; k > 1; k--)
-        ungetc((unsigned char) tmp[k - 1], f);
+      if (peek)
+        {
+          for (size_t k = i; k > 0; k--)
+            ungetc((unsigned char) tmp[k - 1], f);
+        }
+      else
+        {
+          for (size_t k = i; k > 1; k--)
+            ungetc((unsigned char) tmp[k - 1], f);
+        }
 
       cb ret;
       ret.c = (unsigned char) tmp[0];
@@ -109,19 +125,39 @@ fgetcb(FILE *f, mbstate_t *mbs)
     }
   else
     {
-      // Legitimate wide character. Put as many bytes as were not used back
+      // Legitimate wide character.  Put as many bytes as were not used back
       // into the stream, and return the character.
 
-      for (size_t k = i; k > n; k--)
-        ungetc((unsigned char) tmp[k - 1], f);
+      if (peek)
+        {
+          for (size_t k = i; k > 0; k--)
+            ungetc((unsigned char) tmp[k - 1], f);
+        }
+      else
+        {
+          for (size_t k = i; k > n; k--)
+            ungetc((unsigned char) tmp[k - 1], f);
 
-      *mbs = mbs_copy;
+          *mbs = mbs_copy;
+        }
 
       cb ret;
       ret.c = c;
       ret.isbyte = false;
       return ret;
     }
+}
+
+cb
+fgetcb(FILE *f, mbstate_t *mbs)
+{
+  return fgetcb_internal(f, mbs, false);
+}
+
+cb
+fpeekcb(FILE *f, mbstate_t *mbs)
+{
+  return fgetcb_internal(f, mbs, true);
 }
 
 cb
@@ -158,27 +194,6 @@ cb
 getcbyte(mbstate_t *mbs)
 {
   return fgetcb(stdin, mbs);
-}
-
-cb
-ungetcb(cb c, FILE *f, mbstate_t *mbs)
-{
-  // TODO: If the decoder is stateful, what will get it into the
-  // proper states for this character and the following?
-
-  if (c.isbyte)
-    {
-      if (ungetc(c.c, f) == EOF)
-        {
-          c.isbyte = false;
-          c.c = WEOF;
-        }
-    }
-  else
-    {
-      c.c = ungetwc(c.c, f);
-    }
-  return c;
 }
 
 /**** Wide version of linebuffer.c */

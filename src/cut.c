@@ -360,11 +360,10 @@ cut_fields (FILE *stream)
 
   current_rp = frp;
 
-  c = fgetcb (stream, &mbs);
+  c = fpeekcb (stream, &mbs);
   if (c.c == WEOF)
     return;
 
-  ungetcb (c, stream, &mbs);
   c.c = L'\0';
 
   /* To support the semantics of the -s flag, we may have to buffer
@@ -428,10 +427,9 @@ cut_fields (FILE *stream)
               /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
               if (delim == line_delim_wchar)
                 {
-                  cb last_c = fgetcb (stream, &mbs);
+                  cb last_c = fpeekcb (stream, &mbs);
                   if (last_c.c != WEOF)
                     {
-                      ungetcb (last_c, stream, &mbs);
                       found_any_selected_field = true;
                     }
                 }
@@ -469,10 +467,8 @@ cut_fields (FILE *stream)
       /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
       if (delim == line_delim_wchar && c.c == delim)
         {
-          cb last_c = fgetcb (stream, &mbs);
-          if (last_c.c != WEOF)
-            ungetcb (last_c, stream, &mbs);
-          else
+          cb last_c = fpeekcb (stream, &mbs);
+          if (last_c.c == WEOF)
             c = last_c;
         }
 
