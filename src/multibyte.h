@@ -73,6 +73,9 @@ mb_error mbrnext0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
 
 mb_error mbrpeek0(wchar_t *c, const char **s, const char *end, mbstate_t *state);
 
+cb cbpeek (const char **s, const char *end, mbstate_t *state);
+cb cbnext (const char **s, const char *end, mbstate_t *state);
+
 int wstrnumcmp (char const *, char const *, wint_t, wint_t);
 
 #endif

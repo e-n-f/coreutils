@@ -26,6 +26,91 @@
 # define IF_LINT(Code) /* empty */
 #endif
 
+cb
+cbnext (const char **s, const char *end, mbstate_t *mbs)
+{
+  // No bytes remained, so this is EOF
+
+  if (*s == NULL || *s >= end)
+    {
+      cb ret;
+
+      ret.c = WEOF;
+      ret.isbyte = false;
+      return ret;
+    }
+
+  wchar_t c;
+  mbstate_t mbs_copy = *mbs;
+  size_t n = mbrtowc(&c, *s, end - *s, &mbs_copy);
+
+  if (n == 0)
+    {
+      // NUL wide character. There is no information about how many
+      // bytes from the source text it took to produce this NUL,
+      // so try again with more and more bytes until it works.
+
+      size_t j;
+      for (j = 1; j <= end - *s; j++)
+        {
+          mbs_copy = *mbs;
+          if (mbrtowc(&c, *s, end - *s, &mbs_copy) == 0)
+            break;
+        }
+
+      // If j > end - *s, then the decoding isn't reproducible and something
+      // is wrong. But still keep inside the array bounds;
+      if (j > end - *s)
+        j = end - *s;
+
+      cb ret;
+      ret.c = L'\0';
+      ret.isbyte = false;
+
+      *s += j;
+      *mbs = mbs_copy;
+
+      return ret;
+    }
+  else if (n == (size_t) -1 || n == (size_t) -2)
+    {
+      // Decoding error. -2 (incomplete character) shouldn't be possible
+      // unless the file was truncated. Return the first byte as a byte.
+      // Leave the decoding state however it was, since nothing was
+      // decoded.
+
+      cb ret;
+      ret.c = (unsigned char) **s;
+      ret.isbyte = true;
+
+      (*s)++;
+
+      return ret;
+    }
+  else
+    {
+      // Legitimate wide character.  Put as many bytes as were not used back
+      // into the stream, and return the character.
+
+      cb ret;
+      ret.c = c;
+      ret.isbyte = false;
+
+      (*s) += n;
+      *mbs = mbs_copy;
+
+      return ret;
+    }
+}
+
+cb
+cbpeek (const char **s, const char *end, mbstate_t *mbs)
+{
+  const char *tmps = *s;
+  mbstate_t tmpmbs = *mbs;
+  return cbnext(&tmps, end, &tmpmbs);
+}
+
 /**** Binary-tolerant I/O */
 
 static cb
