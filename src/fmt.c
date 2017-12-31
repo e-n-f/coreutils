@@ -32,6 +32,7 @@
 #include "error.h"
 #include "fadvise.h"
 #include "xdectoint.h"
+#include "multibyte.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "fmt"
@@ -135,7 +136,7 @@ struct Word
 
     /* Static attributes determined during input.  */
 
-    const wchar_t *text;	/* the text of the word */
+    const cb *text;		/* the text of the word */
     int length;			/* length of this word */
     int space;			/* the size of the following space */
     unsigned int paren:1;	/* starts with open paren */
@@ -153,13 +154,13 @@ struct Word
 /* Forward declarations.  */
 
 static void set_prefix (const char *p);
-static void fmt (FILE *f);
-static bool get_paragraph (FILE *f);
-static wint_t get_line (FILE *f, wint_t c);
-static wint_t get_prefix (FILE *f);
-static wint_t get_space (FILE *f, wint_t c);
-static wint_t copy_rest (FILE *f, wint_t c);
-static bool same_para (wint_t c);
+static void fmt (FILE *f, mbstate_t *mbs);
+static bool get_paragraph (FILE *f, mbstate_t *mbs);
+static cb get_line (FILE *f, cb c, mbstate_t *mbs);
+static cb get_prefix (FILE *f, mbstate_t *mbs);
+static cb get_space (FILE *f, cb c, mbstate_t *mbs);
+static cb copy_rest (FILE *f, cb c, mbstate_t *mbs);
+static bool same_para (cb c);
 static void flush_paragraph (void);
 static void fmt_paragraph (void);
 static void check_punctuation (WORD *w);
@@ -215,10 +216,10 @@ static int out_column;
 
 /* Space for the paragraph text -- longer paragraphs are handled neatly
    (cf. flush_paragraph()).  */
-static wchar_t parabuf[MAXCHARS];
+static cb parabuf[MAXCHARS];
 
 /* A pointer into parabuf, indicating the first unused character position.  */
-static wchar_t *wptr;
+static cb *wptr;
 
 /* The words of a paragraph -- longer paragraphs are handled neatly
    (cf. flush_paragraph()).  */
@@ -250,7 +251,7 @@ static int other_indent;
    prefix (next_prefix_indent).  See get_paragraph() and copy_rest().  */
 
 /* The last character read from the input file.  */
-static int next_char;
+static cb next_char;
 
 /* The space before the trimmed prefix (or part of it) on the next line
    after the current paragraph.  */
@@ -415,21 +416,28 @@ main (int argc, char **argv)
     }
 
   if (optind == argc)
-    fmt (stdin);
+    {
+      mbstate_t mbs = { 0 };
+      fmt (stdin, &mbs);
+    }
   else
     {
       for (; optind < argc; optind++)
         {
           char *file = argv[optind];
           if (STREQ (file, "-"))
-            fmt (stdin);
+            {
+              mbstate_t mbs = { 0 };
+              fmt (stdin, &mbs);
+            }
           else
             {
               FILE *in_stream;
               in_stream = fopen (file, "r");
               if (in_stream != NULL)
                 {
-                  fmt (in_stream);
+                  mbstate_t mbs = { 0 };
+                  fmt (in_stream, &mbs);
                   if (fclose (in_stream) == EOF)
                     {
                       error (0, errno, "%s", quotef (file));
@@ -487,13 +495,13 @@ static void set_prefix (const char *p)
 /* read file F and send formatted output to stdout.  */
 
 static void
-fmt (FILE *f)
+fmt (FILE *f, mbstate_t *mbs)
 {
   fadvise (f, FADVISE_SEQUENTIAL);
   tabs = false;
   other_indent = 0;
-  next_char = get_prefix (f);
-  while (get_paragraph (f))
+  next_char = get_prefix (f, mbs);
+  while (get_paragraph (f, mbs))
     {
       fmt_paragraph ();
       put_paragraph (word_limit);
@@ -549,27 +557,28 @@ set_other_indent (bool same_paragraph)
    paragraph, else true.  */
 
 static bool
-get_paragraph (FILE *f)
+get_paragraph (FILE *f, mbstate_t *mbs)
 {
-  wint_t c;
+  cb c;
 
   last_line_length = 0;
   c = next_char;
 
   /* Scan (and copy) blank lines, and lines not introduced by the prefix.  */
 
-  while (c == L'\n' || c == WEOF
+  while (c.c == L'\n' || c.c == WEOF
          || next_prefix_indent < prefix_lead_space
          || in_column < next_prefix_indent + prefix_full_length)
     {
-      c = copy_rest (f, c);
-      if (c == WEOF)
+      c = copy_rest (f, c, mbs);
+      if (c.c == WEOF)
         {
-          next_char = WEOF;
+          next_char.isbyte = false;
+          next_char.c = WEOF;
           return false;
         }
       putwchar (L'\n');
-      c = get_prefix (f);
+      c = get_prefix (f, mbs);
     }
 
   /* Got a suitable first line for a paragraph.  */
@@ -578,7 +587,7 @@ get_paragraph (FILE *f)
   first_indent = in_column;
   wptr = parabuf;
   word_limit = word;
-  c = get_line (f, c);
+  c = get_line (f, c, mbs);
   set_other_indent (same_para (c));
 
   /* Read rest of paragraph (unless split is specified).  */
@@ -593,7 +602,7 @@ get_paragraph (FILE *f)
         {
           do
             {			/* for each line till the end of the para */
-              c = get_line (f, c);
+              c = get_line (f, c, mbs);
             }
           while (same_para (c) && in_column == other_indent);
         }
@@ -604,7 +613,7 @@ get_paragraph (FILE *f)
         {
           do
             {			/* for each line till the end of the para */
-              c = get_line (f, c);
+              c = get_line (f, c, mbs);
             }
           while (same_para (c) && in_column == other_indent);
         }
@@ -612,7 +621,7 @@ get_paragraph (FILE *f)
   else
     {
       while (same_para (c) && in_column == other_indent)
-        c = get_line (f, c);
+        c = get_line (f, c, mbs);
     }
 
   /* Tell static analysis tools that using word_limit[-1] is ok.
@@ -629,26 +638,26 @@ get_paragraph (FILE *f)
    that failed to match the prefix.  In the latter, C is \n or EOF.
    Return the character (\n or EOF) ending the line.  */
 
-static wint_t
-copy_rest (FILE *f, wint_t c)
+static cb
+copy_rest (FILE *f, cb c, mbstate_t *mbs)
 {
   const wchar_t *s;
 
   out_column = 0;
-  if (in_column > next_prefix_indent || (c != L'\n' && c != WEOF))
+  if (in_column > next_prefix_indent || (c.c != L'\n' && c.c != WEOF))
     {
       put_space (next_prefix_indent);
       for (s = prefix; out_column != in_column && *s; out_column++)
         putwchar (*s++);
-      if (c != WEOF && c != L'\n')
+      if (c.c != WEOF && c.c != L'\n')
         put_space (in_column - out_column);
-      if (c == WEOF && in_column >= next_prefix_indent + prefix_length)
+      if (c.c == WEOF && in_column >= next_prefix_indent + prefix_length)
         putwchar (L'\n');
     }
-  while (c != L'\n' && c != WEOF)
+  while (c.c != L'\n' && c.c != WEOF)
     {
-      putwchar (c);
-      c = getwc (f);
+      putcbyte (c);
+      c = fgetcb (f, mbs);
     }
   return c;
 }
@@ -658,11 +667,11 @@ copy_rest (FILE *f, wint_t c)
    otherwise false.  */
 
 static bool
-same_para (wint_t c)
+same_para (cb c)
 {
   return (next_prefix_indent == prefix_indent
           && in_column >= next_prefix_indent + prefix_full_length
-          && c != L'\n' && c != WEOF);
+          && c.c != L'\n' && c.c != WEOF);
 }
 
 /* Read a line from input file F, given first non-blank character C
@@ -673,11 +682,11 @@ same_para (wint_t c)
 
    Return the first non-blank character of the next line.  */
 
-static wint_t
-get_line (FILE *f, wint_t c)
+static cb 
+get_line (FILE *f, cb c, mbstate_t *mbs)
 {
   int start;
-  wchar_t *end_of_parabuf;
+  cb *end_of_parabuf;
   WORD *end_of_word;
 
   end_of_parabuf = &parabuf[MAXCHARS];
@@ -697,21 +706,21 @@ get_line (FILE *f, wint_t c)
               flush_paragraph ();
             }
           *wptr++ = c;
-          c = getwc (f);
+          c = fgetcb (f, mbs);
         }
-      while (c != EOF && !iswspace (c));
+      while (c.c != EOF && !iswspace (c.c));
       in_column += word_limit->length = wptr - word_limit->text;
       check_punctuation (word_limit);
 
       /* Scan inter-word space.  */
 
       start = in_column;
-      c = get_space (f, c);
+      c = get_space (f, c, mbs);
       word_limit->space = in_column - start;
-      word_limit->final = (c == WEOF
+      word_limit->final = (c.c == WEOF
                            || (word_limit->period
-                               && (c == L'\n' || word_limit->space > 1)));
-      if (c == L'\n' || c == WEOF || uniform)
+                               && (c.c == L'\n' || word_limit->space > 1)));
+      if (c.c == L'\n' || c.c == WEOF || uniform)
         word_limit->space = word_limit->final ? 2 : 1;
       if (word_limit == end_of_word)
         {
@@ -720,20 +729,20 @@ get_line (FILE *f, wint_t c)
         }
       word_limit++;
     }
-  while (c != L'\n' && c != WEOF);
-  return get_prefix (f);
+  while (c.c != L'\n' && c.c != WEOF);
+  return get_prefix (f, mbs);
 }
 
 /* Read a prefix from input file F.  Return either first non-matching
    character, or first non-blank character after the prefix.  */
 
-static wint_t
-get_prefix (FILE *f)
+static cb
+get_prefix (FILE *f, mbstate_t *mbs)
 {
-  wint_t c;
+  cb c;
 
   in_column = 0;
-  c = get_space (f, getwc (f));
+  c = get_space (f, fgetcb (f, mbs), mbs);
   if (prefix_length == 0)
     next_prefix_indent = prefix_lead_space < in_column ?
       prefix_lead_space : in_column;
@@ -744,12 +753,12 @@ get_prefix (FILE *f)
       for (p = prefix; *p != L'\0'; p++)
         {
           wchar_t pc = *p;
-          if (c != pc)
+          if (c.c != pc)
             return c;
           in_column++;
-          c = getwc (f);
+          c = fgetcb (f, mbs);
         }
-      c = get_space (f, c);
+      c = get_space (f, c, mbs);
     }
   return c;
 }
@@ -757,21 +766,21 @@ get_prefix (FILE *f)
 /* Read blank characters from input file F, starting with C, and keeping
    in_column up-to-date.  Return first non-blank character.  */
 
-static wint_t
-get_space (FILE *f, wint_t c)
+static cb
+get_space (FILE *f, cb c, mbstate_t *mbs)
 {
   while (true)
     {
-      if (c == L' ')
+      if (c.c == L' ')
         in_column++;
-      else if (c == L'\t')
+      else if (c.c == L'\t')
         {
           tabs = true;
           in_column = (in_column / TABWIDTH + 1) * TABWIDTH;
         }
       else
         return c;
-      c = getwc (f);
+      c = fgetcb (f, mbs);
     }
 }
 
@@ -780,15 +789,15 @@ get_space (FILE *f, wint_t c)
 static void
 check_punctuation (WORD *w)
 {
-  wchar_t const *start = w->text;
-  wchar_t const *finish = start + (w->length - 1);
-  unsigned char fin = *finish;
+  cb const *start = w->text;
+  cb const *finish = start + (w->length - 1);
+  cb fin = *finish;
 
-  w->paren = iswopen (*start);
-  w->punct = !! iswpunct (fin);
-  while (start < finish && iswclose (*finish))
+  w->paren = iswopen (start->c);
+  w->punct = !! iswpunct (fin.c);
+  while (start < finish && iswclose (finish->c))
     finish--;
-  w->period = iswperiod (*finish);
+  w->period = iswperiod (finish->c);
 }
 
 /* Flush part of the paragraph to make room.  This function is called on
@@ -808,7 +817,7 @@ flush_paragraph (void)
     {
       for (size_t i = 0; i < wptr - parabuf; i++)
         {
-          putwchar(parabuf[i]);
+          putcbyte (parabuf[i]);
         }
       wptr = parabuf;
       return;
@@ -841,7 +850,7 @@ flush_paragraph (void)
   /* Copy text of words down to start of parabuf -- we use memmove because
      the source and target may overlap.  */
 
-  memmove (parabuf, split_point->text, (wptr - split_point->text) * sizeof(wchar_t));
+  memmove (parabuf, split_point->text, (wptr - split_point->text) * sizeof(cb));
   shift = split_point->text - parabuf;
   wptr -= shift;
 
@@ -1011,12 +1020,12 @@ put_line (WORD *w, int indent)
 static void
 put_word (WORD *w)
 {
-  const wchar_t *s;
+  const cb *s;
   int n;
 
   s = w->text;
   for (n = w->length; n != 0; n--)
-    putwchar (*s++);
+    putcbyte (*s++);
   out_column += w->length;
 }
 
