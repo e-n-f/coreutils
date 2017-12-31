@@ -82,7 +82,7 @@ fgetcb(FILE *f, mbstate_t *mbs)
       // Put the unconsumed bytes back for the next read.
       for (size_t k = i; k > j; k--)
         {
-          ungetc(tmp[k - 1], f);
+          ungetc((unsigned char) tmp[k - 1], f);
         }
 
       *mbs = mbs_copy;
@@ -100,7 +100,7 @@ fgetcb(FILE *f, mbstate_t *mbs)
       // decoded.
 
       for (size_t k = i; k > 1; k--)
-        ungetc(tmp[k - 1], f);
+        ungetc((unsigned char) tmp[k - 1], f);
 
       cb ret;
       ret.c = (unsigned char) tmp[0];
@@ -113,7 +113,7 @@ fgetcb(FILE *f, mbstate_t *mbs)
       // into the stream, and return the character.
 
       for (size_t k = i; k > n; k--)
-        ungetc(tmp[k - 1], f);
+        ungetc((unsigned char) tmp[k - 1], f);
 
       *mbs = mbs_copy;
 
@@ -140,6 +140,9 @@ fputcb(cb c, FILE *f)
     }
   else
     {
+      // TODO: Can we safely write wide characters and bytes
+      // to the same stream?
+
       c.c = putwc(c.c, f);
       return c;
     }
