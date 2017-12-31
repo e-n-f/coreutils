@@ -29,6 +29,7 @@
 #include "error.h"
 #include "fadvise.h"
 #include "xdectoint.h"
+#include "multibyte.h"
 
 #define TAB_WIDTH 8
 
@@ -93,26 +94,29 @@ Wrap input lines in each FILE, writing to standard output.\n\
    The first column is 0. */
 
 static size_t
-adjust_column (size_t column, wchar_t c)
+adjust_column (size_t column, cb c)
 {
   if (!count_bytes)
     {
-      if (c == L'\b')
+      if (c.c == L'\b')
         {
           if (column > 0)
             column--;
         }
-      else if (c == L'\r')
+      else if (c.c == L'\r')
         column = 0;
-      else if (c == L'\t')
+      else if (c.c == L'\t')
         column += TAB_WIDTH - column % TAB_WIDTH;
-      else /* if (iswprint (c)) */
+      else /* if (iswprint (c.c)) */
         column++;
     }
   else
     {
       char tmp[MB_LEN_MAX];
-      column += wctomb(tmp, c);
+      if (c.isbyte)
+        column++;
+      else
+        column += wctomb(tmp, c.c);
     }
   return column;
 }
@@ -125,12 +129,13 @@ static bool
 fold_file (char const *filename, size_t width)
 {
   FILE *istream;
-  wint_t c;
+  cb c;
   size_t column = 0;		/* Screen column where next char will go. */
   size_t offset_out = 0;	/* Index in 'line_out' for next char. */
-  static wchar_t *line_out = NULL;
+  static cb *line_out = NULL;
   static size_t allocated_out = 0;
   int saved_errno;
+  mbstate_t mbs = { 0 };
 
   if (STREQ (filename, "-"))
     {
@@ -148,17 +153,17 @@ fold_file (char const *filename, size_t width)
 
   fadvise (istream, FADVISE_SEQUENTIAL);
 
-  while ((c = getwc (istream)) != WEOF)
+  while ((c = fgetcb (istream, &mbs)).c != WEOF)
     {
       if (offset_out + 1 >= allocated_out)
         line_out = X2NREALLOC (line_out, &allocated_out);
 
-      if (c == L'\n')
+      if (c.c == L'\n')
         {
           line_out[offset_out++] = c;
           for (size_t i = 0; i < offset_out; i++)
             {
-              putwchar(line_out[i]);
+              putcbyte (line_out[i]);
             }
           column = offset_out = 0;
           continue;
@@ -181,7 +186,7 @@ fold_file (char const *filename, size_t width)
               while (logical_end)
                 {
                   --logical_end;
-                  if (iswblank (line_out[logical_end]))
+                  if (iswblank (line_out[logical_end].c))
                     {
                       found_blank = true;
                       break;
@@ -196,13 +201,13 @@ fold_file (char const *filename, size_t width)
                   logical_end++;
                   for (size_t i = 0; i < logical_end; i++)
                     {
-                      putwchar(line_out[i]);
+                      putcbyte (line_out[i]);
                     }
                   putwchar (L'\n');
                   /* Move the remainder to the beginning of the next line.
                      The areas being copied here might overlap. */
                   memmove (line_out, line_out + logical_end,
-                           (offset_out - logical_end) * sizeof(wchar_t));
+                           (offset_out - logical_end) * sizeof(cb));
                   offset_out -= logical_end;
                   for (column = i = 0; i < offset_out; i++)
                     column = adjust_column (column, line_out[i]);
@@ -216,10 +221,13 @@ fold_file (char const *filename, size_t width)
               continue;
             }
 
-          line_out[offset_out++] = L'\n';
+          cb c2;
+          c2.isbyte = false;
+          c2.c = L'\n';
+          line_out[offset_out++] = c2;
           for (size_t i = 0; i < offset_out; i++)
             {
-              putwchar(line_out[i]);
+              putcbyte (line_out[i]);
             }
           column = offset_out = 0;
           goto rescan;
@@ -234,7 +242,7 @@ fold_file (char const *filename, size_t width)
     {
       for (size_t i = 0; i < offset_out; i++)
         {
-          putwchar(line_out[i]);
+          putcbyte (line_out[i]);
         }
     }
 

@@ -392,6 +392,7 @@ src_sort_SOURCES = src/sort.c src/multibyte.c
 
 src_numfmt_SOURCES = src/numfmt.c src/set-fields.c
 src_fmt_SOURCES = src/fmt.c src/multibyte.c
+src_fold_SOURCES = src/fold.c src/multibyte.c
 
 src_md5sum_CPPFLAGS = -DHASH_ALGO_MD5=1 $(AM_CPPFLAGS)
 src_sha1sum_SOURCES = src/md5sum.c
