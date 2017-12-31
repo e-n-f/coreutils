@@ -1,5 +1,5 @@
 /* pr -- convert text files for printing.
-   Copyright (C) 1988-2017 Free Software Foundation, Inc.
+   (C) 1988-2017 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -388,6 +388,7 @@ struct COLUMN;
 struct COLUMN
   {
     FILE *fp;			/* Input stream for this column. */
+    mbstate_t mbs;
     char const *name;		/* File name. */
     enum
       {
@@ -403,7 +404,7 @@ struct COLUMN
     bool (*print_func) (struct COLUMN *);
 
     /* Func to print/store chars in this col. */
-    void (*char_func) (wchar_t);
+    void (*char_func) (cb);
 
     int current_line;		/* Index of current place in line_vector. */
     int lines_stored;		/* Number of lines stored in buff. */
@@ -420,7 +421,7 @@ struct COLUMN
 
 typedef struct COLUMN COLUMN;
 
-static int char_to_clump (wchar_t c);
+static int char_to_clump (cb c);
 static bool read_line (COLUMN *p);
 static bool print_page (void);
 static bool print_stored (COLUMN *p);
@@ -441,11 +442,11 @@ static void init_funcs (void);
 static void init_store_cols (void);
 static void store_columns (void);
 static void balance (int total_stored);
-static void store_char (wchar_t c);
+static void store_char (cb c);
 static void pad_down (unsigned int lines);
 static void read_rest_of_line (COLUMN *p);
 static void skip_read (COLUMN *p, int column_number);
-static void print_char (wchar_t c);
+static void print_char (cb c);
 static void cleanup (void);
 static void print_sep_string (void);
 static void separator_string (const char *optarg_S);
@@ -457,7 +458,7 @@ static COLUMN *column_vector;
    we store the leftmost columns contiguously in buff.
    To print a line from buff, get the index of the first character
    from line_vector[i], and print up to line_vector[i + 1]. */
-static wchar_t *buff;
+static cb *buff;
 
 /* Index of the position in buff where the next character
    will be stored. */
@@ -725,7 +726,7 @@ static char const *file_text;
 /* Output columns available, not counting the date and file name.  */
 static int header_width_available;
 
-static wchar_t *clump_buff;
+static cb *clump_buff;
 
 /* True means we read the line no. lines_per_body in skip_read
    called by skip_to_page. That variable controls the coincidence of a
@@ -1307,7 +1308,7 @@ init_parameters (int number_of_files)
      We've to use 8 as the lower limit, if we use chars_per_default_tab = 8
      to expand a tab which is not an input_tab-char. */
   free (clump_buff);
-  clump_buff = xmalloc (MAX (8, chars_per_input_tab) * sizeof(wchar_t));
+  clump_buff = xmalloc (MAX (8, chars_per_input_tab) * sizeof(cb));
 }
 
 /* Open the necessary files,
@@ -1360,6 +1361,8 @@ init_fps (int number_of_files, char **av)
         {
           p->name = _("standard input");
           p->fp = stdin;
+          mbstate_t nmbs = { 0 };
+          p->mbs = nmbs;
           have_read_stdin = true;
           p->status = OPEN;
           p->full_page_printed = false;
@@ -1375,6 +1378,8 @@ init_fps (int number_of_files, char **av)
         {
           p->name = firstname;
           p->fp = firstfp;
+          mbstate_t nmbs = { 0 };
+          p->mbs = nmbs;
           p->status = OPEN;
           p->full_page_printed = false;
           p->lines_stored = 0;
@@ -1483,12 +1488,16 @@ open_file (char *name, COLUMN *p)
     {
       p->name = _("standard input");
       p->fp = stdin;
+      mbstate_t nmbs = { 0 };
+      p->mbs = nmbs;
       have_read_stdin = true;
     }
   else
     {
       p->name = name;
       p->fp = fopen (name, "r");
+      mbstate_t nmbs = { 0 };
+      p->mbs = nmbs;
     }
   if (p->fp == NULL)
     {
@@ -1917,7 +1926,7 @@ init_store_cols (void)
   end_vector = xnmalloc (total_lines, sizeof *end_vector);
 
   free (buff);
-  buff = xnmalloc (chars_if_truncate, (use_col_separator + 1) * sizeof(wchar_t));
+  buff = xnmalloc (chars_if_truncate, (use_col_separator + 1) * sizeof(cb));
   buff_allocated = chars_if_truncate;  /* Tune this. */
   buff_allocated *= use_col_separator + 1;
 }
@@ -2008,7 +2017,7 @@ balance (int total_stored)
 /* Store a character in the buffer. */
 
 static void
-store_char (wchar_t c)
+store_char (cb c)
 {
   if (buff_current >= buff_allocated)
     {
@@ -2031,7 +2040,12 @@ add_line_number (COLUMN *p)
   line_number++;
   s = number_buff + (num_width - chars_per_number);
   for (i = chars_per_number; i > 0; i--)
-    (p->char_func) (btowc(*s++));
+    {
+      cb c;
+      c.c = btowc(*s++);
+      c.isbyte = false;
+      (p->char_func) (c);
+    }
 
   if (columns > 1)
     {
@@ -2042,17 +2056,24 @@ add_line_number (COLUMN *p)
         {
           i = number_width - chars_per_number;
           while (i-- > 0)
-            (p->char_func) (L' ');
+            {
+              cb c = { .c = L' ', .isbyte = false };
+              (p->char_func) (c);
+            }
         }
       else
-        (p->char_func) (number_separator);
+        {
+          cb c = { .c = number_separator, .isbyte = false };
+          (p->char_func) (c);
+        }
     }
   else
     /* To comply with POSIX, we avoid any expansion of default TAB
        separator with a single column output. No column_width requirement
        has to be considered. */
     {
-      (p->char_func) (number_separator);
+      cb c = { .c = number_separator, .isbyte = false };
+      (p->char_func) (c);
       if (number_separator == L'\t')
         output_position = POS_AFTER_TAB (chars_per_output_tab,
                           output_position);
@@ -2104,21 +2125,21 @@ pad_down (unsigned int lines)
 static void
 read_rest_of_line (COLUMN *p)
 {
-  wint_t c;
+  cb c;
   FILE *f = p->fp;
 
-  while ((c = getwc (f)) != L'\n')
+  while ((c = fgetcb (f, &p->mbs)).c != L'\n')
     {
-      if (c == L'\f')
+      if (c.c == L'\f')
         {
-          if ((c = getwc (f)) != L'\n')
-            ungetwc (c, f);
+          if ((c = fgetcb (f, &p->mbs)).c != L'\n')
+            ungetcb (c, f, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);
           break;
         }
-      else if (c == WEOF)
+      else if (c.c == WEOF)
         {
           close_file (p);
           break;
@@ -2138,24 +2159,24 @@ read_rest_of_line (COLUMN *p)
 static void
 skip_read (COLUMN *p, int column_number)
 {
-  wint_t c;
+  cb c;
   FILE *f = p->fp;
   int i;
   bool single_ff = false;
   COLUMN *q;
 
   /* Read 1st character in a line or any character succeeding a FF */
-  if ((c = getwc (f)) == L'\f' && p->full_page_printed)
+  if ((c = fgetcb (f, &p->mbs)).c == L'\f' && p->full_page_printed)
     /* A FF-coincidence with a previous full_page_printed.
        To avoid an additional empty page, eliminate the FF */
-    if ((c = getwc (f)) == L'\n')
-      c = getwc (f);
+    if ((c = fgetcb (f, &p->mbs)).c == L'\n')
+      c = fgetcb (f, &p->mbs);
 
   p->full_page_printed = false;
 
   /* 1st character a FF means a single FF without any printable
      characters. Don't count it as a line with -n option. */
-  if (c == L'\f')
+  if (c.c == L'\f')
     single_ff = true;
 
   /* Preparing for a FF-coincidence: Maybe we finish that page
@@ -2163,9 +2184,9 @@ skip_read (COLUMN *p, int column_number)
   if (last_line)
     p->full_page_printed = true;
 
-  while (c != L'\n')
+  while (c.c != L'\n')
     {
-      if (c == L'\f')
+      if (c.c == L'\f')
         {
           /* No FF-coincidence possible,
              no catching up of a FF-coincidence with next page */
@@ -2178,17 +2199,17 @@ skip_read (COLUMN *p, int column_number)
                 p->full_page_printed = false;
             }
 
-          if ((c = getwc (f)) != L'\n')
-            ungetwc (c, f);
+          if ((c = fgetcb (f, &p->mbs)).c != L'\n')
+            ungetcb (c, f, &p->mbs);
           hold_file (p);
           break;
         }
-      else if (c == WEOF)
+      else if (c.c == WEOF)
         {
           close_file (p);
           break;
         }
-      c = getwc (f);
+      c = fgetcb (f, &p->mbs);
     }
 
   if (skip_count)
@@ -2273,7 +2294,7 @@ print_sep_string (void)
    characters. */
 
 static void
-print_clump (COLUMN *p, int n, wchar_t *clump)
+print_clump (COLUMN *p, int n, cb *clump)
 {
   while (n--)
     (p->char_func) (*clump++);
@@ -2289,11 +2310,11 @@ print_clump (COLUMN *p, int n, wchar_t *clump)
    required number of tabs and spaces. */
 
 static void
-print_char (wchar_t c)
+print_char (cb c)
 {
   if (tabify_output)
     {
-      if (c == L' ')
+      if (c.c == L' ')
         {
           ++spaces_not_printed;
           return;
@@ -2305,15 +2326,15 @@ print_char (wchar_t c)
       // TODO: On MacOS, the C and POSIX locales say that
       // the top half of ISO-8859-1 is not printable.
       // Work around this?
-      if (! iswprint (c))
+      if (! iswprint (c.c))
         {
-          if (c == L'\b')
+          if (c.c == L'\b')
             --output_position;
         }
       else
         ++output_position;
     }
-  putwchar (c);
+  putcbyte (c);
 }
 
 /* Skip to page PAGE before printing.
@@ -2422,27 +2443,27 @@ print_header (void)
 static bool
 read_line (COLUMN *p)
 {
-  wint_t c;
+  cb c;
   int chars IF_LINT ( = 0);
   int last_input_position;
   int j, k;
   COLUMN *q;
 
   /* read 1st character in each line or any character succeeding a FF: */
-  c = getwc (p->fp);
+  c = fgetcb (p->fp, &p->mbs);
 
   last_input_position = input_position;
 
-  if (c == L'\f' && p->full_page_printed)
-    if ((c = getwc (p->fp)) == L'\n')
-      c = getwc (p->fp);
+  if (c.c == L'\f' && p->full_page_printed)
+    if ((c = fgetcb (p->fp, &p->mbs)).c == L'\n')
+      c = fgetcb (p->fp, &p->mbs);
   p->full_page_printed = false;
 
-  switch (c)
+  switch (c.c)
     {
     case L'\f':
-      if ((c = getwc (p->fp)) != L'\n')
-        ungetwc (c, p->fp);
+      if ((c = fgetcb (p->fp, &p->mbs)).c != L'\n')
+        ungetcb (c, p->fp, &p->mbs);
       FF_only = true;
       if (print_a_header && !storing_columns)
         {
@@ -2453,7 +2474,7 @@ read_line (COLUMN *p)
         print_a_FF = true;
       hold_file (p);
       return true;
-    case EOF:
+    case WEOF:
       close_file (p);
       return true;
     case L'\n':
@@ -2507,27 +2528,27 @@ read_line (COLUMN *p)
     add_line_number (p);
 
   empty_line = false;
-  if (c == L'\n')
+  if (c.c == L'\n')
     return true;
 
   print_clump (p, chars, clump_buff);
 
   while (true)
     {
-      c = getwc (p->fp);
+      c = fgetcb (p->fp, &p->mbs);
 
-      switch (c)
+      switch (c.c)
         {
         case L'\n':
           return true;
         case L'\f':
-          if ((c = getwc (p->fp)) != L'\n')
-            ungetwc (c, p->fp);
+          if ((c = fgetcb (p->fp, &p->mbs)).c != L'\n')
+            ungetcb (c, p->fp, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);
           return true;
-        case EOF:
+        case WEOF:
           close_file (p);
           return true;
         }
@@ -2564,7 +2585,7 @@ print_stored (COLUMN *p)
   COLUMN *q;
 
   int line = p->current_line++;
-  wchar_t *first = &buff[line_vector[line]];
+  cb *first = &buff[line_vector[line]];
   /* FIXME
      UMR: Uninitialized memory read:
      * This is occurring while in:
@@ -2576,7 +2597,7 @@ print_stored (COLUMN *p)
      xmalloc        [xmalloc.c:94]
      init_store_cols [pr.c:1648]
      */
-  wchar_t *last = &buff[line_vector[line + 1]];
+  cb *last = &buff[line_vector[line + 1]];
 
   pad_vertically = true;
 
@@ -2631,26 +2652,29 @@ print_stored (COLUMN *p)
    number of characters is 1.) */
 
 static int
-char_to_clump (wchar_t c)
+char_to_clump (cb c)
 {
-  wchar_t *s = clump_buff;
+  cb *s = clump_buff;
   int i;
   wchar_t esc_buff[4];
   int width;
   int chars;
   int chars_per_c = 8;
 
-  if (c == input_tab_char)
+  if (c.c == input_tab_char)
     chars_per_c = chars_per_input_tab;
 
-  if (c == input_tab_char || c == L'\t')
+  if (c.c == input_tab_char || c.c == L'\t')
     {
       width = TAB_WIDTH (chars_per_c, input_position);
 
       if (untabify_input)
         {
           for (i = width; i; --i)
-            *s++ = L' ';
+            {
+              cb space = { .c = ' ', .isbyte = false };
+              *s++ = space;
+            }
           chars = width;
         }
       else
@@ -2660,37 +2684,48 @@ char_to_clump (wchar_t c)
         }
 
     }
-  else if (! iswprint (c))
+  else if (! iswprint (c.c))
     {
       if (use_esc_sequence)
         {
           width = 4;
           chars = 4;
-          *s++ = L'\\';
-          swprintf (esc_buff, 4, L"%03o", c);
+          cb bs = { .c = L'\\', .isbyte = false };
+          *s++ = bs;
+          swprintf (esc_buff, 4, L"%03o", c.c);
           for (i = 0; i <= 2; ++i)
-            *s++ = esc_buff[i];
+            {
+              cb oct = { .c = esc_buff[i], .isbyte = false };
+              *s++ = oct;
+            }
         }
       else if (use_cntrl_prefix)
         {
-          if (c < 0200)
+          if (c.c < 0200)
             {
               width = 2;
               chars = 2;
-              *s++ = L'^';
-              *s = c ^ 0100;
+
+              cb ch = { .c = L'^', .isbyte = false };
+              *s++ = ch;
+              ch.c = c.c ^ 0100;
+              *s = ch;
             }
           else
             {
               width = 4;
               chars = 4;
-              *s++ = L'\\';
-              swprintf (esc_buff, 4, L"%03o", c);
+              cb bs = { .c = L'\\', .isbyte = false };
+              *s++ = bs;
+              swprintf (esc_buff, 4, L"%03o", c.c);
               for (i = 0; i <= 2; ++i)
-                *s++ = esc_buff[i];
+                {
+                  cb oct = { .c = esc_buff[i], .isbyte = false };
+                  *s++ = oct;
+                }
             }
         }
-      else if (c == L'\b')
+      else if (c.c == L'\b')
         {
           width = -1;
           chars = 1;
