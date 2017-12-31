@@ -245,7 +245,7 @@ static bool truncate_set1 = false;
    It is set in main and used there and in validate().  */
 static bool translating;
 
-static wchar_t io_buf[BUFSIZ];
+static cb io_buf[BUFSIZ];
 
 static wchar_t const *const char_class_name[] =
 {
@@ -1541,14 +1541,14 @@ validate (struct Spec_list *s1, struct Spec_list *s2)
 }
 
 size_t
-wfwrite (wchar_t *buf, size_t n, FILE *f)
+cbfwrite (cb *buf, size_t n, FILE *f)
 {
   size_t wrote = 0;
   size_t i;
 
   for (i = 0; i < n; i++)
     {
-      if (putwchar(buf[i]) == WEOF)
+      if (putcbyte(buf[i]).c == WEOF)
         {
           break;
         }
@@ -1567,13 +1567,13 @@ wfwrite (wchar_t *buf, size_t n, FILE *f)
    character is in the squeeze set.  */
 
 static void
-squeeze_filter (wchar_t *buf, size_t size, size_t (*reader) (wchar_t *, size_t))
+squeeze_filter (cb *buf, size_t size, mbstate_t *mbs, size_t (*reader) (cb *, size_t, mbstate_t *))
 {
   /* A value distinct from any character that may have been stored in a
      buffer as the result of a block-read in the function squeeze_filter.  */
-  const int NOT_A_CHAR = INT_MAX;
+  const wint_t NOT_A_CHAR = WEOF;
 
-  int char_to_squeeze = NOT_A_CHAR;
+  wint_t char_to_squeeze = NOT_A_CHAR;
   size_t i = 0;
   size_t nr = 0;
 
@@ -1581,7 +1581,7 @@ squeeze_filter (wchar_t *buf, size_t size, size_t (*reader) (wchar_t *, size_t))
     {
       if (i >= nr)
         {
-          nr = reader (buf, size);
+          nr = reader (buf, size, mbs);
           if (nr == 0)
             break;
           i = 0;
@@ -1603,26 +1603,26 @@ squeeze_filter (wchar_t *buf, size_t size, size_t (*reader) (wchar_t *, size_t))
              of the input is removed by squeezing repeats.  But most
              uses of this functionality seem to remove less than 20-30%
              of the input.  */
-          for (; i < nr && !in_squeeze_set[(buf[i])]; i += 2)
+          for (; i < nr && !in_squeeze_set[buf[i].c]; i += 2)
             continue;
 
           /* There is a special case when i == nr and we've just
              skipped a character (the last one in buf) that is in
              the squeeze set.  */
-          if (i == nr && in_squeeze_set[(buf[i - 1])])
+          if (i == nr && in_squeeze_set[buf[i - 1].c])
             --i;
 
           if (i >= nr)
             out_len = nr - begin;
           else
             {
-              char_to_squeeze = buf[i];
+              char_to_squeeze = buf[i].c;
               /* We're about to output buf[begin..i].  */
               out_len = i - begin + 1;
 
               /* But since we stepped by 2 in the loop above,
                  out_len may be one too large.  */
-              if (i > 0 && buf[i - 1] == char_to_squeeze)
+              if (i > 0 && buf[i - 1].c == char_to_squeeze)
                 --out_len;
 
               /* Advance i to the index of first character to be
@@ -1631,7 +1631,7 @@ squeeze_filter (wchar_t *buf, size_t size, size_t (*reader) (wchar_t *, size_t))
               ++i;
             }
           if (out_len > 0
-              && wfwrite (&buf[begin], out_len, stdout) != out_len)
+              && cbfwrite (&buf[begin], out_len, stdout) != out_len)
             die (EXIT_FAILURE, errno, _("write error"));
         }
 
@@ -1640,7 +1640,7 @@ squeeze_filter (wchar_t *buf, size_t size, size_t (*reader) (wchar_t *, size_t))
           /* Advance i to index of first char != char_to_squeeze
              (or to nr if all the rest of the characters in this
              buffer are the same as char_to_squeeze).  */
-          for (; i < nr && buf[i] == char_to_squeeze; i++)
+          for (; i < nr && buf[i].c == char_to_squeeze; i++)
             continue;
           if (i < nr)
             char_to_squeeze = NOT_A_CHAR;
@@ -1652,13 +1652,13 @@ squeeze_filter (wchar_t *buf, size_t size, size_t (*reader) (wchar_t *, size_t))
 }
 
 static size_t
-plain_read (wchar_t *buf, size_t size)
+plain_read (cb *buf, size_t size, mbstate_t *mbs)
 {
   size_t n = 0;
   while (n < size)
     {
-      wint_t c = getwchar();
-      if (c == WEOF)
+      cb c = getcbyte(mbs);
+      if (c.c == WEOF)
         {
           if (ferror(stdin))
             {
@@ -1678,7 +1678,7 @@ plain_read (wchar_t *buf, size_t size)
    or 0 upon EOF.  */
 
 static size_t
-read_and_delete (wchar_t *buf, size_t size)
+read_and_delete (cb *buf, size_t size, mbstate_t *mbs)
 {
   size_t n_saved;
 
@@ -1687,7 +1687,7 @@ read_and_delete (wchar_t *buf, size_t size)
      just deleted all the characters in a buffer.  */
   do
     {
-      size_t nr = plain_read (buf, size);
+      size_t nr = plain_read (buf, size, mbs);
 
       if (nr == 0)
         return 0;
@@ -1698,12 +1698,12 @@ read_and_delete (wchar_t *buf, size_t size)
          of buf[i] into buf[n_saved] when it would be a NOP.  */
 
       size_t i;
-      for (i = 0; i < nr && !in_delete_set[(buf[i])]; i++)
+      for (i = 0; i < nr && !in_delete_set[(buf[i].c)]; i++)
         continue;
       n_saved = i;
 
       for (++i; i < nr; i++)
-        if (!in_delete_set[(buf[i])])
+        if (!in_delete_set[(buf[i].c)])
           buf[n_saved++] = buf[i];
     }
   while (n_saved == 0);
@@ -1716,12 +1716,16 @@ read_and_delete (wchar_t *buf, size_t size)
    array 'xlate'.  Return the number of characters read, or 0 upon EOF.  */
 
 static size_t
-read_and_xlate (wchar_t *buf, size_t size)
+read_and_xlate (cb *buf, size_t size, mbstate_t *mbs)
 {
-  size_t bytes_read = plain_read (buf, size);
+  size_t bytes_read = plain_read (buf, size, mbs);
 
   for (size_t i = 0; i < bytes_read; i++)
-    buf[i] = xlate[(buf[i])];
+    {
+      wchar_t c = xlate[buf[i].c];
+      if (!buf[i].isbyte || c <= UCHAR_MAX)
+        buf[i].c = c;
+    }
 
   return bytes_read;
 }
@@ -1847,11 +1851,12 @@ main (int argc, char **argv)
   xset_binary_mode (STDIN_FILENO, O_BINARY);
   xset_binary_mode (STDOUT_FILENO, O_BINARY);
   fadvise (stdin, FADVISE_SEQUENTIAL);
+  mbstate_t mbs = { 0 };
 
   if (squeeze_repeats && non_option_args == 1)
     {
       set_initialize (s1, complement, in_squeeze_set);
-      squeeze_filter (io_buf, sizeof io_buf, plain_read);
+      squeeze_filter (io_buf, sizeof io_buf, &mbs, plain_read);
     }
   else if (delete && non_option_args == 1)
     {
@@ -1859,10 +1864,10 @@ main (int argc, char **argv)
 
       while (true)
         {
-          size_t nr = read_and_delete (io_buf, sizeof io_buf);
+          size_t nr = read_and_delete (io_buf, sizeof io_buf, &mbs);
           if (nr == 0)
             break;
-          if (wfwrite (io_buf, nr, stdout) != nr)
+          if (cbfwrite (io_buf, nr, stdout) != nr)
             die (EXIT_FAILURE, errno, _("write error"));
         }
     }
@@ -1870,7 +1875,7 @@ main (int argc, char **argv)
     {
       set_initialize (s1, complement, in_delete_set);
       set_initialize (s2, false, in_squeeze_set);
-      squeeze_filter (io_buf, sizeof io_buf, read_and_delete);
+      squeeze_filter (io_buf, sizeof io_buf, &mbs, read_and_delete);
     }
   else if (translating)
     {
@@ -1945,16 +1950,16 @@ main (int argc, char **argv)
       if (squeeze_repeats)
         {
           set_initialize (s2, false, in_squeeze_set);
-          squeeze_filter (io_buf, sizeof io_buf, read_and_xlate);
+          squeeze_filter (io_buf, sizeof io_buf, &mbs, read_and_xlate);
         }
       else
         {
           while (true)
             {
-              size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf);
+              size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf, &mbs);
               if (bytes_read == 0)
                 break;
-              if (wfwrite (io_buf, bytes_read, stdout) != bytes_read)
+              if (cbfwrite (io_buf, bytes_read, stdout) != bytes_read)
                 die (EXIT_FAILURE, errno, _("write error"));
             }
         }
