@@ -176,6 +176,15 @@ xputwchar (wchar_t c)
     write_error ();
 }
 
+/* Output a single character, reporting any write errors.  */
+
+static inline void
+xputcbyte (cb c)
+{
+  if (putcbyte (c).c == WEOF)
+    write_error ();
+}
+
 /* Perform column paste on the NFILES files named in FNAMPTR.
    Return true if successful, false if one or more files could not be
    opened or read. */
@@ -193,6 +202,7 @@ paste_parallel (size_t nfiles, char **fnamptr)
   /* Streams open to the files to process; NULL if the corresponding
      stream is closed.  */
   FILE **fileptr = xnmalloc (nfiles + 1, sizeof *fileptr);
+  mbstate_t *mbs = xnmalloc (nfiles + 1, sizeof(mbstate_t));
 
   /* Number of files still open to process.  */
   size_t files_open;
@@ -238,28 +248,28 @@ paste_parallel (size_t nfiles, char **fnamptr)
 
       for (size_t i = 0; i < nfiles && files_open; i++)
         {
-          wint_t chr IF_LINT ( = 0);	/* Input character. */
+          cb chr = { 0 };		/* Input character. */
           int err IF_LINT ( = 0);	/* Input errno value.  */
           bool sometodo = false;	/* Input chars to process.  */
 
           if (fileptr[i])
             {
-              chr = getwc (fileptr[i]);
+              chr = fgetcb (fileptr[i], &mbs[i]);
               err = errno;
-              if (chr != WEOF && delims_saved)
+              if (chr.c != WEOF && delims_saved)
                 {
                   for (size_t i = 0; i < delims_saved; i++)
                      xputwchar (delbuf[i]);
                   delims_saved = 0;
                 }
 
-              while (chr != WEOF)
+              while (chr.c != WEOF)
                 {
                   sometodo = true;
-                  if (chr == line_delim)
+                  if (chr.c == line_delim)
                     break;
-                  xputwchar (chr);
-                  chr = getwc (fileptr[i]);
+                  xputcbyte (chr);
+                  chr = fgetcb (fileptr[i], &mbs[i]);
                   err = errno;
                 }
             }
@@ -321,8 +331,8 @@ paste_parallel (size_t nfiles, char **fnamptr)
               /* Except for last file, replace last newline with delim. */
               if (i + 1 != nfiles)
                 {
-                  if (chr != line_delim && chr != WEOF)
-                    xputwchar (chr);
+                  if (chr.c != line_delim && chr.c != WEOF)
+                    xputcbyte (chr);
                   if (*delimptr != EMPTY_DELIM)
                     xputwchar (*delimptr);
                   if (++delimptr == delim_end)
@@ -332,13 +342,17 @@ paste_parallel (size_t nfiles, char **fnamptr)
                 {
                   /* If the last line of the last file lacks a newline,
                      print one anyhow.  POSIX requires this.  */
-                  wchar_t c = (chr == WEOF ? line_delim : chr);
-                  xputwchar (c);
+                  if (chr.c == WEOF) {
+                    chr.c = line_delim;
+                    chr.isbyte = false;
+                  }
+                  xputcbyte (chr);
                 }
             }
         }
     }
   free (fileptr);
+  free (mbs);
   free (delbuf);
   return ok;
 }
@@ -351,7 +365,7 @@ static bool
 paste_serial (size_t nfiles, char **fnamptr)
 {
   bool ok = true;	/* false if open or read errors occur. */
-  wint_t charnew, charold; /* Current and previous char read. */
+  cb charnew, charold; /* Current and previous char read. */
   wchar_t const *delimptr;	/* Current delimiter char. */
   FILE *fileptr;	/* Open for reading current file. */
 
@@ -376,11 +390,12 @@ paste_serial (size_t nfiles, char **fnamptr)
           fadvise (fileptr, FADVISE_SEQUENTIAL);
         }
 
+      mbstate_t mbs = { 0 };
       delimptr = delims;	/* Set up for delimiter string. */
 
-      charold = getwc (fileptr);
+      charold = fgetcb (fileptr, &mbs);
       saved_errno = errno;
-      if (charold != EOF)
+      if (charold.c != WEOF)
         {
           /* 'charold' is set up.  Hit it!
              Keep reading characters, stashing them in 'charnew';
@@ -388,10 +403,10 @@ paste_serial (size_t nfiles, char **fnamptr)
              character if needed.  After the EOF, output 'charold'
              if it's a newline; otherwise, output it and then a newline. */
 
-          while ((charnew = getwc (fileptr)) != WEOF)
+          while ((charnew = fgetcb (fileptr, &mbs)).c != WEOF)
             {
               /* Process the old character. */
-              if (charold == line_delim)
+              if (charold.c == line_delim)
                 {
                   if (*delimptr != EMPTY_DELIM)
                     xputwchar (*delimptr);
@@ -400,17 +415,17 @@ paste_serial (size_t nfiles, char **fnamptr)
                     delimptr = delims;
                 }
               else
-                xputwchar (charold);
+                xputcbyte (charold);
 
               charold = charnew;
             }
           saved_errno = errno;
 
           /* Hit EOF.  Process that last character. */
-          xputwchar (charold);
+          xputcbyte (charold);
         }
 
-      if (charold != line_delim)
+      if (charold.c != line_delim)
         xputwchar (line_delim);
 
       if (ferror (fileptr))

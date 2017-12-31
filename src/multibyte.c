@@ -103,7 +103,7 @@ fgetcb(FILE *f, mbstate_t *mbs)
         ungetc(tmp[k - 1], f);
 
       cb ret;
-      ret.c = tmp[0];
+      ret.c = (unsigned char) tmp[0];
       ret.isbyte = true;
       return ret;
     }
