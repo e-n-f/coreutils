@@ -26,6 +26,158 @@
 # define IF_LINT(Code) /* empty */
 #endif
 
+/**** Binary-tolerant I/O */
+
+cb
+fgetcb(FILE *f, mbstate_t *mbs)
+{
+  char tmp[MB_CUR_MAX];
+
+  // May need to read as many as MB_CUR_MAX bytes ahead to get
+  // one complete multibyte character.
+
+  size_t i;
+  for (i = 0; i < MB_CUR_MAX; i++)
+    {
+      int c = getc(f);
+      if (c == EOF)
+        break;
+      tmp[i] = c;
+    }
+
+  // No bytes were read, so this is EOF
+
+  if (i == 0)
+    {
+      cb ret;
+
+      ret.c = WEOF;
+      ret.isbyte = false;
+      return ret;
+    }
+
+  wchar_t c;
+  mbstate_t mbs_copy = *mbs;
+  size_t n = mbrtowc(&c, tmp, i, &mbs_copy);
+
+  if (n == 0)
+    {
+      // NUL wide character. There is no guarantee about how many
+      // bytes from the source text it took to produce this NUL,
+      // so try again with more and more bytes until it works.
+
+      size_t j;
+      for (j = 1; j <= i; j++)
+        {
+          mbs_copy = *mbs;
+          if (mbrtowc(&c, tmp, j, &mbs_copy) == 0)
+            break;
+        }
+
+      // If j > i, then the decoding isn't reproducible and something
+      // is wrong. But still keep inside the array bounds;
+      if (j > i)
+        j = i;
+
+      // Put the unconsumed bytes back for the next read.
+      for (size_t k = i; k > j; k--)
+        {
+          ungetc(tmp[k - 1], f);
+        }
+
+      *mbs = mbs_copy;
+
+      cb ret;
+      ret.c = L'\0';
+      ret.isbyte = false;
+      return ret;
+    }
+  else if (n == (size_t) -1 || n == (size_t) -2)
+    {
+      // Decoding error. -2 (incomplete character) shouldn't be possible
+      // unless the file was truncated. Return the first byte as a byte.
+      // Leave the decoding state however it was, since nothing was
+      // decoded.
+
+      for (size_t k = i; k > 1; k--)
+        ungetc(tmp[k - 1], f);
+
+      cb ret;
+      ret.c = tmp[0];
+      ret.isbyte = true;
+      return ret;
+    }
+  else
+    {
+      // Legitimate wide character. Put as many bytes as were not used back
+      // into the stream, and return the character.
+
+      for (size_t k = i; k > n; k--)
+        ungetc(tmp[k - 1], f);
+
+      *mbs = mbs_copy;
+
+      cb ret;
+      ret.c = c;
+      ret.isbyte = false;
+      return ret;
+    }
+}
+
+cb
+fputcb(cb c, FILE *f)
+{
+  if (c.isbyte)
+    {
+      int ret = putc(c.c, f);
+      if (ret == EOF)
+        {
+          c.c = WEOF;
+          c.isbyte = false;
+        }
+
+      return c;
+    }
+  else
+    {
+      c.c = putwc(c.c, f);
+      return c;
+    }
+}
+
+cb
+putcbyte(cb c)
+{
+  return fputcb(c, stdout);
+}
+
+cb
+getcbyte(mbstate_t *mbs)
+{
+  return fgetcb(stdin, mbs);
+}
+
+cb
+ungetcb(cb c, FILE *f, mbstate_t *mbs)
+{
+  // TODO: If the decoder is stateful, what will get it into the
+  // proper states for this character and the following?
+
+  if (c.isbyte)
+    {
+      if (ungetc(c.c, f) == EOF)
+        {
+          c.isbyte = false;
+          c.c = WEOF;
+        }
+    }
+  else
+    {
+      c.c = ungetwc(c.c, f);
+    }
+  return c;
+}
+
 /**** Wide version of linebuffer.c */
 
 /* Initialize wlinebuffer LINEBUFFER for use. */
@@ -234,20 +386,20 @@ xwcsndup (const wchar_t *string, size_t n)
 #define MIN_CHUNK 64
 
 ssize_t
-wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
-            wchar_t delim1, wchar_t delim2, FILE *stream)
+cbgetndelim2 (cb **lineptr, size_t *linesize, size_t offset, size_t nmax,
+            wchar_t delim1, wchar_t delim2, FILE *stream, mbstate_t *mbs)
 {
   size_t nbytes_avail;          /* Allocated but unused bytes in *LINEPTR.  */
-  wchar_t *read_pos;               /* Where we're reading into *LINEPTR. */
+  cb *read_pos;               /* Where we're reading into *LINEPTR. */
   ssize_t bytes_stored = -1;
-  wchar_t *ptr = *lineptr;
+  cb *ptr = *lineptr;
   size_t size = *linesize;
   bool found_delimiter;
 
   if (!ptr)
     {
       size = nmax < MIN_CHUNK ? nmax : MIN_CHUNK;
-      ptr = malloc (size * sizeof(wchar_t));
+      ptr = malloc (size * sizeof(cb));
       if (!ptr)
         return -1;
     }
@@ -275,15 +427,18 @@ wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
       /* Here always ptr + size == read_pos + nbytes_avail.
          Also nbytes_avail > 0 || size < nmax.  */
 
-      wint_t c IF_LINT (= 0);
-      const wchar_t *buffer;
+      cb c;
+      c.c = L'\0';
+      c.isbyte = false;
+
+      const cb *buffer;
       size_t buffer_len;
 
       buffer = NULL;
       if (true)
         {
-          c = getwc (stream);
-          if (c == EOF)
+          c = fgetcb (stream, mbs);
+          if (c.c == WEOF)
             {
               /* Return partial line, if any.  */
               if (read_pos == ptr)
@@ -291,7 +446,7 @@ wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
               else
                 break;
             }
-          if (c == delim1 || c == delim2)
+          if (c.c == delim1 || c.c == delim2)
             found_delimiter = true;
           buffer_len = 1;
         }
@@ -305,7 +460,7 @@ wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
           /* Grow size proportionally, not linearly, to avoid O(n^2)
              running time.  */
           size_t newsize = size < MIN_CHUNK ? size + MIN_CHUNK : 2 * size;
-          wchar_t *newptr;
+          cb *newptr;
 
           /* Increase newsize so that it becomes
              >= (read_pos - ptr) + buffer_len.  */
@@ -324,7 +479,7 @@ wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
             }
 
           nbytes_avail = newsize - (read_pos - ptr);
-          newptr = realloc (ptr, newsize * sizeof(wchar_t));
+          newptr = realloc (ptr, newsize * sizeof(cb));
           if (!newptr)
             goto unlock_done;
           ptr = newptr;
@@ -351,7 +506,10 @@ wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
 
   /* Done - NUL terminate and return the number of bytes read.
      At this point we know that nbytes_avail >= 1.  */
-  *read_pos = '\0';
+  cb c;
+  c.c = L'\0';
+  c.isbyte = false;
+  *read_pos = c;
 
   bytes_stored = read_pos - (ptr + offset);
 
@@ -677,132 +835,3 @@ wstrnumcmp (char const *a, char const *b,
 }
 
 
-/**** Binary-tolerant I/O */
-
-cb
-fgetcb(FILE *f, mbstate_t *mbs)
-{
-  char tmp[MB_CUR_MAX];
-
-  // May need to read as many as MB_CUR_MAX bytes ahead to get
-  // one complete multibyte character.
-
-  size_t i;
-  for (i = 0; i < MB_CUR_MAX; i++)
-    {
-      int c = getc(f);
-      if (c == EOF)
-        break;
-      tmp[i] = c;
-    }
-
-  // No bytes were read, so this is EOF
-
-  if (i == 0)
-    {
-      cb ret;
-
-      ret.c = WEOF;
-      ret.isbyte = false;
-      return ret;
-    }
-
-  wchar_t c;
-  mbstate_t mbs_copy = *mbs;
-  size_t n = mbrtowc(&c, tmp, i, &mbs_copy);
-
-  if (n == 0)
-    {
-      // NUL wide character. There is no guarantee about how many
-      // bytes from the source text it took to produce this NUL,
-      // so try again with more and more bytes until it works.
-
-      size_t j;
-      for (j = 1; j <= i; j++)
-        {
-          mbs_copy = *mbs;
-          if (mbrtowc(&c, tmp, j, &mbs_copy) == 0)
-            break;
-        }
-
-      // If j > i, then the decoding isn't reproducible and something
-      // is wrong. But still keep inside the array bounds;
-      if (j > i)
-        j = i;
-
-      // Put the unconsumed bytes back for the next read.
-      for (size_t k = i; k > j; k--)
-        {
-          ungetc(tmp[k - 1], f);
-        }
-
-      *mbs = mbs_copy;
-
-      cb ret;
-      ret.c = L'\0';
-      ret.isbyte = false;
-      return ret;
-    }
-  else if (n == (size_t) -1 || n == (size_t) -2)
-    {
-      // Decoding error. -2 (incomplete character) shouldn't be possible
-      // unless the file was truncated. Return the first byte as a byte.
-      // Leave the decoding state however it was, since nothing was
-      // decoded.
-
-      for (size_t k = i; k > 1; k--)
-        ungetc(tmp[k - 1], f);
-
-      cb ret;
-      ret.c = (unsigned char) tmp[0];
-      ret.isbyte = true;
-      return ret;
-    }
-  else
-    {
-      // Legitimate wide character. Put as many bytes as were not used back
-      // into the stream, and return the character.
-
-      for (size_t k = i; k > n; k--)
-        ungetc(tmp[k - 1], f);
-
-      *mbs = mbs_copy;
-
-      cb ret;
-      ret.c = c;
-      ret.isbyte = false;
-      return ret;
-    }
-}
-
-cb
-fputcb(cb c, FILE *f)
-{
-  if (c.isbyte)
-    {
-      int ret = putc(c.c, f);
-      if (ret == EOF)
-        {
-          c.c = WEOF;
-          c.isbyte = false;
-        }
-
-      return c;
-    }
-  else
-    {
-      c.c = putwc(c.c, f);
-      return c;
-    }
-}
-
-cb
-putcbyte(cb c)
-{
-  return fputcb(c, stdout);
-}
-
-cb getcbyte(mbstate_t *mbs)
-{
-  return fgetcb(stdin, mbs);
-}

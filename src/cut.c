@@ -73,7 +73,7 @@ static struct field_range_pair *current_rp;
    is followed by a delimiter or a newline before any of it may be
    output.  Otherwise, cut_fields can do the job without using this
    buffer.  */
-static wchar_t *field_1_buffer;
+static cb *field_1_buffer;
 
 /* The number of bytes allocated for FIELD_1_BUFFER.  */
 static size_t field_1_bufsize;
@@ -281,7 +281,7 @@ cut_bytes (FILE *stream)
                   if (print_delimiter && is_range_start_index (byte_idx))
                     {
                       for (size_t i = 0; i < output_delimiter_length; i++)
-                        putwchar(output_delimiter_string[i]);
+                        putwchar (output_delimiter_string[i]);
                     }
                   print_delimiter = true;
                 }
@@ -305,20 +305,22 @@ cut_characters (FILE *stream)
   character_idx = 0;
   print_delimiter = false;
   current_rp = frp;
+  mbstate_t mbs = { 0 };
+
   while (true)
     {
-      wint_t c;		/* Each character from the file. */
+      cb c;		/* Each character from the file. */
 
-      c = getwc (stream);
+      c = fgetcb (stream, &mbs);
 
-      if (c == line_delim_wchar)
+      if (c.c == line_delim_wchar)
         {
-          putwchar (c);
+          putcbyte (c);
           character_idx = 0;
           print_delimiter = false;
           current_rp = frp;
         }
-      else if (c == WEOF)
+      else if (c.c == WEOF)
         {
           if (character_idx > 0)
             putwchar (line_delim_wchar);
@@ -334,12 +336,12 @@ cut_characters (FILE *stream)
                   if (print_delimiter && is_range_start_index (character_idx))
                     {
                       for (size_t i = 0; i < output_delimiter_length; i++)
-                        putwchar(output_delimiter_string[i]);
+                        putwchar (output_delimiter_string[i]);
                     }
                   print_delimiter = true;
                 }
 
-              putwchar (c);
+              putcbyte (c);
             }
         }
     }
@@ -350,19 +352,20 @@ cut_characters (FILE *stream)
 static void
 cut_fields (FILE *stream)
 {
-  wint_t c;
+  cb c;
   size_t field_idx = 1;
   bool found_any_selected_field = false;
   bool buffer_first_field;
+  mbstate_t mbs = { 0 };
 
   current_rp = frp;
 
-  c = getwc (stream);
-  if (c == WEOF)
+  c = fgetcb (stream, &mbs);
+  if (c.c == WEOF)
     return;
 
-  ungetwc (c, stream);
-  c = 0;
+  ungetcb (c, stream, &mbs);
+  c.c = L'\0';
 
   /* To support the semantics of the -s flag, we may have to buffer
      all of the first field to determine whether it is 'delimited.'
@@ -379,8 +382,8 @@ cut_fields (FILE *stream)
           ssize_t len;
           size_t n_bytes;
 
-          len = wgetndelim2 (&field_1_buffer, &field_1_bufsize, 0,
-                            GETNLINE_NO_LIMIT, delim, line_delim_wchar, stream);
+          len = cbgetndelim2 (&field_1_buffer, &field_1_bufsize, 0,
+                            GETNLINE_NO_LIMIT, delim, line_delim_wchar, stream, &mbs);
           if (len < 0)
             {
               free (field_1_buffer);
@@ -393,12 +396,12 @@ cut_fields (FILE *stream)
           n_bytes = len;
           assert (n_bytes != 0);
 
-          c = 0;
+          c.c = L'\0';
 
           /* If the first field extends to the end of line (it is not
              delimited) and we are printing all non-delimited lines,
              print this one.  */
-          if (field_1_buffer[n_bytes - 1] != delim)
+          if (field_1_buffer[n_bytes - 1].c != delim)
             {
               if (suppress_non_delimited)
                 {
@@ -407,11 +410,12 @@ cut_fields (FILE *stream)
               else
                 {
                   for (size_t i = 0; i < n_bytes; i++)
-                    putwchar(field_1_buffer[i]);
+                    putcbyte (field_1_buffer[i]);
                   /* Make sure the output line is newline terminated.  */
-                  if (field_1_buffer[n_bytes - 1] != line_delim_wchar)
+                  if (field_1_buffer[n_bytes - 1].c != line_delim_wchar)
                     putwchar (line_delim_wchar);
-                  c = line_delim_wchar;
+                  c.c = line_delim_wchar;
+                  c.isbyte = false;
                 }
               continue;
             }
@@ -419,15 +423,15 @@ cut_fields (FILE *stream)
             {
               /* Print the field, but not the trailing delimiter.  */
               for (size_t i = 0; i < n_bytes - 1; i++)
-                putwchar(field_1_buffer[i]);
+                putcbyte (field_1_buffer[i]);
 
               /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
               if (delim == line_delim_wchar)
                 {
-                  int last_c = getwc (stream);
-                  if (last_c != WEOF)
+                  cb last_c = fgetcb (stream, &mbs);
+                  if (last_c.c != WEOF)
                     {
-                      ungetwc (last_c, stream);
+                      ungetcb (last_c, stream, &mbs);
                       found_any_selected_field = true;
                     }
                 }
@@ -437,53 +441,53 @@ cut_fields (FILE *stream)
           next_item (&field_idx);
         }
 
-      wint_t prev_c = c;
+      cb prev_c = c;
 
       if (print_kth (field_idx))
         {
           if (found_any_selected_field)
             {
               for (size_t i = 0; i < output_delimiter_length; i++)
-                putwchar(output_delimiter_string[i]);
+                putwchar (output_delimiter_string[i]);
             }
           found_any_selected_field = true;
 
-          while ((c = getwc (stream)) != delim && c != line_delim_wchar && c != WEOF)
+          while ((c = fgetcb (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
             {
-              putwchar (c);
+              putcbyte (c);
               prev_c = c;
             }
         }
       else
         {
-          while ((c = getwc (stream)) != delim && c != line_delim_wchar && c != WEOF)
+          while ((c = fgetcb (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
             {
               prev_c = c;
             }
         }
 
       /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
-      if (delim == line_delim_wchar && c == delim)
+      if (delim == line_delim_wchar && c.c == delim)
         {
-          int last_c = getwc (stream);
-          if (last_c != WEOF)
-            ungetwc (last_c, stream);
+          cb last_c = fgetcb (stream, &mbs);
+          if (last_c.c != WEOF)
+            ungetcb (last_c, stream, &mbs);
           else
             c = last_c;
         }
 
-      if (c == delim)
+      if (c.c == delim)
         next_item (&field_idx);
-      else if (c == line_delim_wchar || c == WEOF)
+      else if (c.c == line_delim_wchar || c.c == WEOF)
         {
           if (found_any_selected_field
               || !(suppress_non_delimited && field_idx == 1))
             {
-              if (c == line_delim_wchar || prev_c != line_delim_wchar
+              if (c.c == line_delim_wchar || prev_c.c != line_delim_wchar
                   || delim == line_delim_wchar)
                 putwchar (line_delim_wchar);
             }
-          if (c == WEOF)
+          if (c.c == WEOF)
             break;
           field_idx = 1;
           current_rp = frp;

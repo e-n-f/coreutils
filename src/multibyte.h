@@ -6,6 +6,17 @@
 #include <wchar.h>
 #include <wctype.h>
 
+typedef struct cb {
+	wint_t c;
+	bool isbyte;
+} cb;
+
+cb fgetcb(FILE *f, mbstate_t *mbs);
+cb fputcb(cb c, FILE *f);
+cb putcbyte(cb c);
+cb getcbyte(mbstate_t *mbs);
+cb ungetcb(cb c, FILE *f, mbstate_t *mbs);
+
 /* A 'struct linebuffer' holds a line of multibyte text. */
 
 struct wlinebuffer
@@ -34,8 +45,8 @@ const char *wquote (const wchar_t *s);
 
 extern wchar_t *xwcsndup (const wchar_t *string, size_t n);
 
-ssize_t wgetndelim2 (wchar_t **lineptr, size_t *linesize, size_t offset, size_t nmax,
-                     wchar_t delim1, wchar_t delim2, FILE *stream);
+ssize_t cbgetndelim2 (cb **lineptr, size_t *linesize, size_t offset, size_t nmax,
+                     wchar_t delim1, wchar_t delim2, FILE *stream, mbstate_t *mbs);
 
 wchar_t *xwcsdup (wchar_t const *string);
 
@@ -60,15 +71,5 @@ mb_error mbrnext0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
 mb_error mbrpeek0(wchar_t *c, const char **s, const char *end, mbstate_t *state);
 
 int wstrnumcmp (char const *, char const *, wint_t, wint_t);
-
-typedef struct cb {
-	wint_t c;
-	bool isbyte;
-} cb;
-
-cb fgetcb(FILE *f, mbstate_t *mbs);
-cb fputcb(cb c, FILE *f);
-cb putcbyte(cb c);
-cb getcbyte(mbstate_t *mbs);
 
 #endif
