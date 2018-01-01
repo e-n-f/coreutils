@@ -2324,17 +2324,10 @@ print_char (cb c)
       else if (spaces_not_printed > 0)
         print_white_space ();
 
-      /* Nonprintables are assumed to have width 0, except '\b'. */
-      // TODO: On MacOS, the C and POSIX locales say that
-      // the top half of ISO-8859-1 is not printable.
-      // Work around this?
-      if (! iswprint (c.c))
-        {
-          if (c.c == L'\b')
-            --output_position;
-        }
+      if (c.c == L'\b')
+        --output_position;
       else
-        ++output_position;
+        output_position += charwidth (c.c);
     }
   putcbyte (c);
 }
@@ -2744,7 +2737,7 @@ char_to_clump (cb c)
     }
   else
     {
-      width = 1;
+      width = charwidth (c.c);
       chars = 1;
       *s = c;
     }
