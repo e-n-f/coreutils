@@ -878,8 +878,27 @@ cbmemchr(cb *haystack, wchar_t needle, size_t n)
   return NULL;
 }
 
+static int charwidth_cache[UCHAR_MAX] = { 0 };
+
 int charwidth (wchar_t c)
 {
+  if (c >= 0 && c < UCHAR_MAX)
+    {
+      if (charwidth_cache[c] != 0)
+        return charwidth_cache[c] - 1;
+
+      int wid;
+      if (iswprint (c))
+        wid = wcwidth (c);
+      else if (iscntrl (c))
+        wid = 0;
+      else
+        wid = 1;
+
+      charwidth_cache[c] = wid + 1;
+      return wid;
+    }
+
   if (iswprint (c))
     return wcwidth (c);
   else if (iscntrl (c))
