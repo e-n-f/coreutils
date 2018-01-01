@@ -124,12 +124,38 @@ static cb
 fgetcb_internal(FILE *f, mbstate_t *mbs, bool peek)
 {
   char tmp[MB_CUR_MAX];
+  mbstate_t copy;
+  cb c;
+
+  // Special case for the common case of a valid character
+  // from just one byte.
+
+  int b = getc(f);
+  if (b == EOF)
+    {
+      c.c = WEOF;
+      c.isbyte = false;
+      return c;
+    }
+
+  tmp[0] = b;
+  copy = *mbs;
+  wchar_t ch;
+  if (mbrtowc(&ch, tmp, 1, &copy) == 1)
+    {
+      if (peek)
+        ungetc((unsigned char) b, f);
+
+      c.c = ch;
+      c.isbyte = false;
+      return c;
+    }
 
   // May need to read as many as MB_CUR_MAX bytes ahead to get
   // one complete multibyte character.
 
   size_t i;
-  for (i = 0; i < MB_CUR_MAX; i++)
+  for (i = 1; i < MB_CUR_MAX; i++)
     {
       int c = getc(f);
       if (c == EOF)
@@ -137,10 +163,10 @@ fgetcb_internal(FILE *f, mbstate_t *mbs, bool peek)
       tmp[i] = c;
     }
 
-  mbstate_t copy = *mbs;
+  copy = *mbs;
   const char *s = tmp;
 
-  cb c = cbnext(&s, s + i, &copy);
+  c = cbnext(&s, s + i, &copy);
 
   if (peek)
     {
