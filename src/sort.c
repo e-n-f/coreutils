@@ -53,6 +53,7 @@
 #include "stdlib--.h"
 #include "strnumcmp.h"
 #include "xmemcoll.h"
+#include "memcoll.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
 #include "multibyte.h"
@@ -2717,6 +2718,32 @@ key_warnings (struct keyfield const *gkey, bool gkey_only)
     error (0, 0, _("option '-r' only applies to last-resort comparison"));
 }
 
+int
+xtrymemcoll0 (char const *s1, size_t s1size, char const *s2, size_t s2size)
+{
+  errno = 0;
+  int diff = memcoll0 (s1, s1size, s2, s2size);
+  if (errno == 0)
+    return diff;
+
+  // Must contain bytes that the locale doesn't support, so decompose it.
+
+  cb tmp1[s1size];
+  cb tmp2[s2size];
+  const char *s1end = s1 + s1size;
+  const char *s2end = s2 + s2size;
+  mbstate_t mbs1 = { 0 }, mbs2 = { 0 };
+  size_t len1 = 0, len2 = 0;
+
+  cb c;
+  while ((c = cbnext(&s1, s1end, &mbs1)).c != WEOF)
+    tmp1[len1++] = c;
+  while ((c = cbnext(&s2, s2end, &mbs2)).c != WEOF)
+    tmp2[len2++] = c;
+
+  return xcbmemcoll(tmp1, len1, tmp2, len2);
+}
+
 /* Compare two lines A and B trying every key in sequence until there
    are no more keys or a difference is found. */
 
@@ -2881,7 +2908,7 @@ keycompare (struct line const *a, struct line const *b)
               else if (tlenb == 0)
                 diff = 1;
               else
-                diff = xmemcoll0 (ta, tlena + 1, tb, tlenb + 1);
+                diff = xtrymemcoll0 (ta, tlena + 1, tb, tlenb + 1);
             }
 
           if (allocated != NULL)
@@ -3057,7 +3084,7 @@ compare (struct line const *a, struct line const *b)
          it will not unconditionally write '\0' after the
          passed in buffers, which was seen to give around
          a 3% increase in performance for short lines.  */
-      diff = xmemcoll0 (a->text, alen + 1, b->text, blen + 1);
+      diff = xtrymemcoll0 (a->text, alen + 1, b->text, blen + 1);
     }
   else if (! (diff = memcmp (a->text, b->text, MIN (alen, blen))))
     diff = alen < blen ? -1 : alen != blen;
