@@ -138,6 +138,7 @@ struct Word
 
     const cb *text;		/* the text of the word */
     int length;			/* length of this word */
+    int width;			/* width of this word */
     int space;			/* the size of the following space */
     unsigned int paren:1;	/* starts with open paren */
     unsigned int period:1;	/* ends in [.?!])* */
@@ -146,7 +147,7 @@ struct Word
 
     /* The remaining fields are computed during the optimization.  */
 
-    int line_length;		/* length of the best line starting here */
+    int line_width;		/* length of the best line starting here */
     COST best_cost;		/* cost of best paragraph starting here */
     WORD *next_break;		/* break which achieves best_cost */
   };
@@ -197,11 +198,17 @@ static int max_width;
 /* The length of prefix minus leading space.  */
 static int prefix_full_length;
 
+/* The width of prefix minus leading space.  */
+static int prefix_full_width;
+
 /* The length of the leading space trimmed from the prefix.  */
 static int prefix_lead_space;
 
 /* The length of prefix minus leading and trailing space.  */
 static int prefix_length;
+
+/* The column width of prefix minus leading and trailing space.  */
+static int prefix_width;
 
 /* The preferred width of text lines, set to LEEWAY % less than max_width.  */
 static int goal_width;
@@ -260,7 +267,7 @@ static int next_prefix_indent;
 /* If nonzero, the length of the last line output in the current
    paragraph, used to charge for raggedness at the split point for long
    paragraphs chosen by fmt_paragraph().  */
-static int last_line_length;
+static int last_line_width;
 
 void
 usage (int status)
@@ -335,7 +342,7 @@ main (int argc, char **argv)
   crown = tagged = split = uniform = false;
   max_width = WIDTH;
   prefix = L"";
-  prefix_length = prefix_lead_space = prefix_full_length = 0;
+  prefix_length = prefix_lead_space = prefix_full_length = prefix_width = 0;
 
   if (argc > 1 && argv[1][0] == '-' && ISDIGIT (argv[1][1]))
     {
@@ -473,11 +480,17 @@ set_prefix_wc (wchar_t *p)
     }
   prefix = p;
   prefix_full_length = wcslen (p);
+  prefix_full_width = 0;
+  for (size_t i = 0; i < prefix_full_length; i++)
+    prefix_full_width += charwidth (p[i]);
   s = p + prefix_full_length;
   while (s > p && s[-1] == L' ')
     s--;
   *s = '\0';
   prefix_length = s - p;
+  prefix_width = 0;
+  for (size_t i = 0; i < prefix_length; i++)
+    prefix_width += charwidth (p[i]);
 }
 
 /* Trim space from the front and back of the string P, yielding the prefix,
@@ -561,14 +574,14 @@ get_paragraph (FILE *f, mbstate_t *mbs)
 {
   cb c;
 
-  last_line_length = 0;
+  last_line_width = 0;
   c = next_char;
 
   /* Scan (and copy) blank lines, and lines not introduced by the prefix.  */
 
   while (c.c == L'\n' || c.c == WEOF
          || next_prefix_indent < prefix_lead_space
-         || in_column < next_prefix_indent + prefix_full_length)
+         || in_column < next_prefix_indent + prefix_full_width)
     {
       c = copy_rest (f, c, mbs);
       if (c.c == WEOF)
@@ -647,11 +660,11 @@ copy_rest (FILE *f, cb c, mbstate_t *mbs)
   if (in_column > next_prefix_indent || (c.c != L'\n' && c.c != WEOF))
     {
       put_space (next_prefix_indent);
-      for (s = prefix; out_column != in_column && *s; out_column++)
+      for (s = prefix; out_column != in_column && *s; out_column += charwidth (s[-1]))
         putwchar (*s++);
       if (c.c != WEOF && c.c != L'\n')
         put_space (in_column - out_column);
-      if (c.c == WEOF && in_column >= next_prefix_indent + prefix_length)
+      if (c.c == WEOF && in_column >= next_prefix_indent + prefix_width)
         putwchar (L'\n');
     }
   while (c.c != L'\n' && c.c != WEOF)
@@ -670,7 +683,7 @@ static bool
 same_para (cb c)
 {
   return (next_prefix_indent == prefix_indent
-          && in_column >= next_prefix_indent + prefix_full_length
+          && in_column >= next_prefix_indent + prefix_full_width
           && c.c != L'\n' && c.c != WEOF);
 }
 
@@ -709,7 +722,14 @@ get_line (FILE *f, cb c, mbstate_t *mbs)
           c = fgetcb (f, mbs);
         }
       while (c.c != EOF && !iswspace (c.c));
-      in_column += word_limit->length = wptr - word_limit->text;
+      word_limit->length = wptr - word_limit->text;
+      word_limit->width = 0;
+      for (size_t i = 0; i < word_limit->length; i++)
+        {
+          int w = charwidth (word_limit->text[i].c);
+          in_column += w;
+          word_limit->width += w;
+        }
       check_punctuation (word_limit);
 
       /* Scan inter-word space.  */
@@ -755,7 +775,7 @@ get_prefix (FILE *f, mbstate_t *mbs)
           wchar_t pc = *p;
           if (c.c != pc)
             return c;
-          in_column++;
+          in_column += charwidth (pc);
           c = fgetcb (f, mbs);
         }
       c = get_space (f, c, mbs);
@@ -874,37 +894,37 @@ static void
 fmt_paragraph (void)
 {
   WORD *start, *w;
-  int len;
+  int wid;
   COST wcost, best;
-  int saved_length;
+  int saved_width;
 
   word_limit->best_cost = 0;
-  saved_length = word_limit->length;
-  word_limit->length = max_width;	/* sentinel */
+  saved_width = word_limit->width;
+  word_limit->width = max_width;	/* sentinel */
 
   for (start = word_limit - 1; start >= word; start--)
     {
       best = MAXCOST;
-      len = start == word ? first_indent : other_indent;
+      wid = start == word ? first_indent : other_indent;
 
       /* At least one word, however long, in the line.  */
 
       w = start;
-      len += w->length;
+      wid += w->width;
       do
         {
           w++;
 
           /* Consider breaking before w.  */
 
-          wcost = line_cost (w, len) + w->best_cost;
-          if (start == word && last_line_length > 0)
-            wcost += RAGGED_COST (len - last_line_length);
+          wcost = line_cost (w, wid) + w->best_cost;
+          if (start == word && last_line_width > 0)
+            wcost += RAGGED_COST (wid - last_line_width);
           if (wcost < best)
             {
               best = wcost;
               start->next_break = w;
-              start->line_length = len;
+              start->line_width = wid;
             }
 
           /* This is a kludge to keep us from computing 'len' as the
@@ -914,13 +934,13 @@ fmt_paragraph (void)
           if (w == word_limit)
             break;
 
-          len += (w - 1)->space + w->length;	/* w > start >= word */
+          wid += (w - 1)->space + w->width;	/* w > start >= word */
         }
-      while (len < max_width);
+      while (wid < max_width);
       start->best_cost = best + base_cost (start);
     }
 
-  word_limit->length = saved_length;
+  word_limit->width = saved_width;
 }
 
 /* Return the constant component of the cost of breaking before the
@@ -945,13 +965,13 @@ base_cost (WORD *this)
       else if ((this - 1)->punct)
         cost -= PUNCT_BONUS;
       else if (this > word + 1 && (this - 2)->final)
-        cost += WIDOW_COST ((this - 1)->length);
+        cost += WIDOW_COST ((this - 1)->width);
     }
 
   if (this->paren)
     cost -= PAREN_BONUS;
   else if (this->final)
-    cost += ORPHAN_COST (this->length);
+    cost += ORPHAN_COST (this->width);
 
   return cost;
 }
@@ -960,18 +980,18 @@ base_cost (WORD *this)
    depends on LEN, the length of the line beginning there.  */
 
 static COST
-line_cost (WORD *next, int len)
+line_cost (WORD *next, int wid)
 {
   int n;
   COST cost;
 
   if (next == word_limit)
     return 0;
-  n = goal_width - len;
+  n = goal_width - wid;
   cost = SHORT_COST (n);
   if (next->next_break != word_limit)
     {
-      n = len - next->line_length;
+      n = wid - next->line_width;
       cost += RAGGED_COST (n);
     }
   return cost;
@@ -1001,7 +1021,7 @@ put_line (WORD *w, int indent)
   out_column = 0;
   put_space (prefix_indent);
   fputws (prefix, stdout);
-  out_column += prefix_length;
+  out_column += prefix_width;
   put_space (indent - out_column);
 
   endline = w->next_break - 1;
@@ -1011,7 +1031,7 @@ put_line (WORD *w, int indent)
       put_space (w->space);
     }
   put_word (w);
-  last_line_length = out_column;
+  last_line_width = out_column;
   putwchar (L'\n');
 }
 
@@ -1026,7 +1046,8 @@ put_word (WORD *w)
   s = w->text;
   for (n = w->length; n != 0; n--)
     putcbyte (*s++);
-  out_column += w->length;
+  for (size_t i = 0; i < w->length; i++)
+    out_column += charwidth (w->text[i].c);
 }
 
 /* Output to stdout SPACE spaces, or equivalent tabs.  */
