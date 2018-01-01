@@ -766,6 +766,13 @@ mbrafter0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
   return mbrpeek0(c, s, end, state);
 }
 
+cb
+cbafter(const char **s, const char *end, mbstate_t *state)
+{
+  cbnext(s, end, state);
+  return cbpeek(s, end, state);
+}
+
 /**** Wide version of lib/strnumcmp-in.h */
 
 # define WNEGATION_SIGN   L'-'
@@ -780,65 +787,65 @@ ISWDIGIT(wchar_t c)
 static inline int _GL_ATTRIBUTE_PURE
 wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbsa, mbstate_t *mbsb)
 {
-  wchar_t ca, cb;
+  cb ca, cb;
   const char *aend = a + strlen(a);
   const char *bend = b + strlen(b);
 
-  mbrpeek0(&ca, &a, aend, mbsa);
-  mbrpeek0(&cb, &b, bend, mbsb);
+  ca = cbpeek (&a, aend, mbsa);
+  cb = cbpeek (&b, bend, mbsb);
 
-  if (ca == decimal_point && cb == decimal_point)
+  if (ca.c == decimal_point && cb.c == decimal_point)
     {
       while (1)
         {
-          mbrnext0(&ca, &a, aend, mbsa);
-          mbrnext0(&cb, &b, bend, mbsb);
+          ca = cbnext (&a, aend, mbsa);
+          cb = cbnext (&b, bend, mbsb);
 
-          if (ca != cb)
+          if (ca.c != cb.c)
             break;
 
-          mbrpeek0(&ca, &a, aend, mbsa);
-          mbrpeek0(&cb, &b, bend, mbsb);
+          ca = cbpeek (&a, aend, mbsa);
+          cb = cbpeek (&b, bend, mbsb);
 
-          if (!ISWDIGIT(ca))
+          if (!ISWDIGIT (ca.c))
             return 0;
 
-          if (ISWDIGIT (ca) && ISWDIGIT (ca))
-            return ca - cb;
+          if (ISWDIGIT (ca.c) && ISWDIGIT (ca.c))
+            return ca.c - cb.c;
 
-          if (ISWDIGIT (ca))
+          if (ISWDIGIT (ca.c))
             goto a_trailing_nonzero;
-          if (ISWDIGIT (cb))
+          if (ISWDIGIT (cb.c))
             goto b_trailing_nonzero;
 
           return 0;
         }
     }
-  else if (ca == decimal_point)
+  else if (ca.c == decimal_point)
     {
-      mbrnext0(&ca, &a, aend, mbsa);
+      ca = cbnext (&a, aend, mbsa);
     a_trailing_nonzero:
-      for (; mbrpeek0(&ca, &a, aend, mbsa) == MB_OK; mbrnext0(&ca, &a, aend, mbsa))
+      for (; (ca = cbpeek (&a, aend, mbsa)).c != WEOF; ca = cbnext (&a, aend, mbsa))
         {
-          if (ca != WNUMERIC_ZERO)
+          if (ca.c != WNUMERIC_ZERO)
             break;
         }
 
-      mbrnext0(&ca, &a, aend, mbsa);
-      return ISWDIGIT (ca);
+      ca = cbnext (&a, aend, mbsa);
+      return ISWDIGIT (ca.c);
     }
-  else if (*b++ == decimal_point)
+  else if (cb.c == decimal_point)
     {
-      mbrnext0(&cb, &b, bend, mbsb);
+      cb = cbnext (&b, bend, mbsb);
     b_trailing_nonzero:
-      for (; mbrpeek0(&cb, &b, bend, mbsb) == MB_OK; mbrnext0(&cb, &b, bend, mbsb))
+      for (; (cb = cbpeek (&b, bend, mbsb)).c != WEOF; cb = cbnext (&b, bend, mbsb))
         {
-          if (cb != WNUMERIC_ZERO)
+          if (cb.c != WNUMERIC_ZERO)
             break;
         }
 
-      mbrnext0(&cb, &b, bend, mbsb);
-      return ISWDIGIT (cb);
+      cb = cbnext (&b, bend, mbsb);
+      return ISWDIGIT (cb.c);
     }
   return 0;
 }
@@ -847,67 +854,67 @@ static inline int _GL_ATTRIBUTE_PURE
 wnumcompare (char const *a, char const *b,
             wint_t decimal_point, wint_t thousands_sep)
 {
-  wint_t tmp;
+  int tmp;
   size_t log_a;
   size_t log_b;
 
-  wchar_t tmpa, tmpb;
+  cb tmpa, tmpb;
   const char *aend = a + strlen(a), *bend = b + strlen(b);
   mbstate_t mbsa = { 0 }, mbsb = { 0 };
 
-  mbrpeek0(&tmpa, &a, aend, &mbsa);
-  mbrpeek0(&tmpb, &b, bend, &mbsb);
+  tmpa = cbpeek (&a, aend, &mbsa);
+  tmpb = cbpeek (&b, bend, &mbsb);
 
-  if (tmpa == WNEGATION_SIGN)
+  if (tmpa.c == WNEGATION_SIGN)
     {
       do
-        mbrafter0(&tmpa, &a, aend, &mbsa);
-      while (tmpa == WNUMERIC_ZERO || tmpa == thousands_sep);
-      if (tmpb != WNEGATION_SIGN)
+        tmpa = cbafter (&a, aend, &mbsa);
+      while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF));
+      if (tmpb.c != WNEGATION_SIGN)
         {
-          if (tmpa == decimal_point)
+          if (tmpa.c == decimal_point)
             do
-              mbrafter0(&tmpa, &a, aend, &mbsa);
-            while (tmpa == WNUMERIC_ZERO);
-          if (ISWDIGIT (tmpa))
+              tmpa = cbafter (&a, aend, &mbsa);
+            while (tmpa.c == WNUMERIC_ZERO);
+          if (ISWDIGIT (tmpa.c))
             return -1;
-          while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep)
-            mbrafter0(&tmpb, &b, bend, &mbsb);
-          if (tmpb == decimal_point)
+          while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF))
+            tmpb = cbafter (&b, bend, &mbsb);
+          if (tmpb.c == decimal_point)
             do
-              mbrafter0(&tmpb, &b, bend, &mbsb);
-            while (tmpb == WNUMERIC_ZERO);
-          return - ISWDIGIT (tmpb);
+              tmpb = cbafter(&b, bend, &mbsb);
+            while (tmpb.c == WNUMERIC_ZERO);
+          return - ISWDIGIT (tmpb.c);
         }
       do
-        mbrafter0(&tmpb, &b, bend, &mbsb);
-      while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep);
+        tmpb = cbafter (&b, bend, &mbsb);
+      while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF));
 
-      while (tmpa == tmpb && ISWDIGIT (tmpa))
+      while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))
         {
           do
-            mbrafter0(&tmpa, &a, aend, &mbsa);
-          while (tmpa == thousands_sep);
+            tmpa = cbafter (&a, aend, &mbsa);
+          while (tmpa.c == thousands_sep && thousands_sep != WEOF);
           do
-            mbrafter0(&tmpb, &b, bend, &mbsb);
-          while (tmpb == thousands_sep);
+            tmpb = cbafter (&b, bend, &mbsb);
+          while (tmpb.c == thousands_sep && thousands_sep != WEOF);
         }
 
-      if ((tmpa == decimal_point && !ISWDIGIT (tmpb))
-          || (tmpb == decimal_point && !ISWDIGIT (tmpa)))
+      if ((tmpa.c == decimal_point && !ISWDIGIT (tmpb.c))
+          || (tmpb.c == decimal_point && !ISWDIGIT (tmpa.c)))
         return wfraccompare (b, a, decimal_point, &mbsb, &mbsa);
 
-      tmp = tmpb - tmpa;
+      tmp = tmpb.c - tmpa.c;
 
-      for (log_a = 0; ISWDIGIT (tmpa); ++log_a)
+      for (log_a = 0; ISWDIGIT (tmpa.c); ++log_a)
         do
-          mbrafter0(&tmpa, &a, aend, &mbsa);
-        while (tmpa == thousands_sep);
+          tmpa = cbafter (&a, aend, &mbsa);
+        while (tmpa.c == thousands_sep && thousands_sep != WEOF);
 
-      for (log_b = 0; ISWDIGIT (tmpb); ++log_b)
+      for (log_b = 0; ISWDIGIT (tmpb.c); ++log_b)
         do
-          mbrafter0(&tmpb, &b, bend, &mbsb);
-        while (tmpb == thousands_sep);
+          tmpb = cbafter (&b, bend, &mbsb);
+        while (tmpb.c == thousands_sep && thousands_sep != WEOF);
 
       if (log_a != log_b)
         return log_a < log_b ? 1 : -1;
@@ -917,57 +924,57 @@ wnumcompare (char const *a, char const *b,
 
       return tmp;
     }
-  else if (tmpb == WNEGATION_SIGN)
+  else if (tmpb.c == WNEGATION_SIGN)
     {
       do
-        mbrafter0(&tmpb, &b, bend, &mbsb);
-      while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep);
-      if (tmpb == decimal_point)
+        tmpb = cbafter (&b, bend, &mbsb);
+      while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF));
+      if (tmpb.c == decimal_point)
         do
-          mbrafter0(&tmpb, &b, bend, &mbsb);
-        while (tmpb == WNUMERIC_ZERO);
-      if (ISWDIGIT (tmpb))
+          tmpb = cbafter (&b, bend, &mbsb);
+        while (tmpb.c == WNUMERIC_ZERO);
+      if (ISWDIGIT (tmpb.c))
         return 1;
-      while (tmpa == WNUMERIC_ZERO || tmpa == thousands_sep)
-        mbrafter0(&tmpa, &a, aend, &mbsa);
-      if (tmpa == decimal_point)
+      while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF))
+        tmpa = cbafter (&a, aend, &mbsa);
+      if (tmpa.c == decimal_point)
         do
-          mbrafter0(&tmpa, &a, aend, &mbsa);
-        while (tmpa == WNUMERIC_ZERO);
-      return ISWDIGIT (tmpa);
+          tmpa = cbafter (&a, aend, &mbsa);
+        while (tmpa.c == WNUMERIC_ZERO);
+      return ISWDIGIT (tmpa.c);
     }
   else
     {
-      while (tmpa == WNUMERIC_ZERO || tmpa == thousands_sep)
-        mbrafter0(&tmpa, &a, aend, &mbsa);
-      while (tmpb == WNUMERIC_ZERO || tmpb == thousands_sep)
-        mbrafter0(&tmpb, &b, bend, &mbsb);
+      while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF))
+        tmpa = cbafter (&a, aend, &mbsa);
+      while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF))
+        tmpb = cbafter (&b, bend, &mbsb);
 
-      while (tmpa == tmpb && ISWDIGIT (tmpa))
+      while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))
         {
           do
-            mbrafter0(&tmpa, &a, aend, &mbsa);
-          while (tmpa == thousands_sep);
+            tmpa = cbafter (&a, aend, &mbsa);
+          while (tmpa.c == thousands_sep && thousands_sep != WEOF);
           do
-            mbrafter0(&tmpb, &b, bend, &mbsb);
-          while (tmpb == thousands_sep);
+            tmpb = cbafter (&b, bend, &mbsb);
+          while (tmpb.c == thousands_sep && thousands_sep != WEOF);
         }
 
-      if ((tmpa == decimal_point && !ISWDIGIT (tmpb))
-          || (tmpb == decimal_point && !ISWDIGIT (tmpa)))
+      if ((tmpa.c == decimal_point && !ISWDIGIT (tmpb.c))
+          || (tmpb.c == decimal_point && !ISWDIGIT (tmpa.c)))
         return wfraccompare (a, b, decimal_point, &mbsa, &mbsb);
 
-      tmp = tmpa - tmpb;
+      tmp = tmpa.c - tmpb.c;
 
-      for (log_a = 0; ISWDIGIT (tmpa); ++log_a)
+      for (log_a = 0; ISWDIGIT (tmpa.c); ++log_a)
         do
-          mbrafter0(&tmpa, &a, aend, &mbsa);
-        while (tmpa == thousands_sep);
+          tmpa = cbafter (&a, aend, &mbsa);
+        while (tmpa.c == thousands_sep && thousands_sep != WEOF);
 
-      for (log_b = 0; ISWDIGIT (tmpb); ++log_b)
+      for (log_b = 0; ISWDIGIT (tmpb.c); ++log_b)
         do
-          mbrafter0(&tmpb, &b, bend, &mbsb);
-        while (tmpb == thousands_sep);
+          tmpb = cbafter (&b, bend, &mbsb);
+        while (tmpb.c == thousands_sep && thousands_sep != WEOF);
 
       if (log_a != log_b)
         return log_a < log_b ? -1 : 1;
