@@ -168,8 +168,9 @@ expand (void)
                 }
               else
                 {
-                  column++;
-                  if (!column)
+                  int wid = charwidth (c.c);
+                  column += wid;
+                  if (column == 0 && wid != 0)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
                 }
 

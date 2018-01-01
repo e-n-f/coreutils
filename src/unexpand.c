@@ -114,6 +114,7 @@ unexpand (void)
      include characters other than spaces, so the blanks must be
      stored, not merely counted.  */
   cb *pending_blank;
+  size_t pending_blank_size;
 
   if (!fp)
     return;
@@ -122,6 +123,7 @@ unexpand (void)
      tab stop, then MAX_COLUMN_WIDTH - 1 blanks, then a non-blank; so
      allocate MAX_COLUMN_WIDTH bytes to store the blanks.  */
   pending_blank = xmalloc (max_column_width * sizeof(cb));
+  pending_blank_size = max_column_width;
 
   while (true)
     {
@@ -201,7 +203,8 @@ unexpand (void)
                         }
                       else
                         {
-                          column++;
+                          int wid = charwidth (c.c);
+                          column += wid;
 
                           if (! (prev_blank && column == next_tab_column))
                             {
@@ -209,6 +212,12 @@ unexpand (void)
                                  will be replaced by tabs.  */
                               if (column == next_tab_column)
                                 one_blank_before_tab_stop = true;
+
+                              if (pending >= pending_blank_size)
+                                {
+                                  pending_blank_size *= 2;
+                                  xrealloc (pending_blank, pending_blank_size * sizeof(cb));
+                                }
                               pending_blank[pending++] = c;
                               prev_blank = true;
                               continue;
@@ -236,8 +245,9 @@ unexpand (void)
                 }
               else
                 {
-                  column++;
-                  if (!column)
+                  int wid = charwidth (c.c);
+                  column += wid;
+                  if (column == 0 && wid != 0)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
                 }
 
