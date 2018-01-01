@@ -1178,11 +1178,11 @@ getoptarg (const char *arg, char switch_char, wchar_t *character, int *number)
 {
   if (*arg && !ISDIGIT (*arg))
     {
-      wchar_t c;
       mbstate_t mbs = { 0 };
-      if (mbrnext0(&c, &arg, arg + strlen(arg), &mbs) != MB_OK)
+      cb c = cbnext(&arg, arg + strlen(arg), &mbs);
+      if (c.c == WEOF)
         die (EXIT_FAILURE, errno, _("text conversion: %s"), quote(arg));
-      *character = c;
+      *character = c.c;
     }
   if (*arg)
     {

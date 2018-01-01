@@ -111,6 +111,13 @@ cbpeek (const char **s, const char *end, mbstate_t *mbs)
   return cbnext(&tmps, end, &tmpmbs);
 }
 
+cb
+cbafter(const char **s, const char *end, mbstate_t *state)
+{
+  cbnext(s, end, state);
+  return cbpeek(s, end, state);
+}
+
 /**** Binary-tolerant I/O */
 
 static cb
@@ -130,107 +137,27 @@ fgetcb_internal(FILE *f, mbstate_t *mbs, bool peek)
       tmp[i] = c;
     }
 
-  // No bytes were read, so this is EOF
+  mbstate_t copy = *mbs;
+  const char *s = tmp;
 
-  if (i == 0)
+  cb c = cbnext(&s, s + i, &copy);
+
+  if (peek)
     {
-      cb ret;
-
-      ret.c = WEOF;
-      ret.isbyte = false;
-      return ret;
-    }
-
-  wchar_t c;
-  mbstate_t mbs_copy = *mbs;
-  size_t n = mbrtowc(&c, tmp, i, &mbs_copy);
-
-  if (n == 0)
-    {
-      // NUL wide character. There is no information about how many
-      // bytes from the source text it took to produce this NUL,
-      // so try again with more and more bytes until it works.
-
-      size_t j;
-      for (j = 1; j <= i; j++)
-        {
-          mbs_copy = *mbs;
-          if (mbrtowc(&c, tmp, j, &mbs_copy) == 0)
-            break;
-        }
-
-      // If j > i, then the decoding isn't reproducible and something
-      // is wrong. But still keep inside the array bounds;
-      if (j > i)
-        j = i;
-
-      if (peek)
-        {
-          for (size_t k = i; k > 0; k--)
-            ungetc((unsigned char) tmp[k - 1], f);
-        }
-      else
-        {
-          // Put the unconsumed bytes back for the next read.
-          for (size_t k = i; k > j; k--)
-            {
-              ungetc((unsigned char) tmp[k - 1], f);
-            }
-
-          *mbs = mbs_copy;
-        }
-
-      cb ret;
-      ret.c = L'\0';
-      ret.isbyte = false;
-      return ret;
-    }
-  else if (n == (size_t) -1 || n == (size_t) -2)
-    {
-      // Decoding error. -2 (incomplete character) shouldn't be possible
-      // unless the file was truncated. Return the first byte as a byte.
-      // Leave the decoding state however it was, since nothing was
-      // decoded.
-
-      if (peek)
-        {
-          for (size_t k = i; k > 0; k--)
-            ungetc((unsigned char) tmp[k - 1], f);
-        }
-      else
-        {
-          for (size_t k = i; k > 1; k--)
-            ungetc((unsigned char) tmp[k - 1], f);
-        }
-
-      cb ret;
-      ret.c = (unsigned char) tmp[0];
-      ret.isbyte = true;
-      return ret;
+      // Put everything back
+      for (size_t k = i; k > 0; k--)
+        ungetc((unsigned char) tmp[k - 1], f);
     }
   else
     {
-      // Legitimate wide character.  Put as many bytes as were not used back
-      // into the stream, and return the character.
+      // Put unused bytes back
+      for (size_t k = i; k > s - tmp; k--)
+        ungetc((unsigned char) tmp[k - 1], f);
 
-      if (peek)
-        {
-          for (size_t k = i; k > 0; k--)
-            ungetc((unsigned char) tmp[k - 1], f);
-        }
-      else
-        {
-          for (size_t k = i; k > n; k--)
-            ungetc((unsigned char) tmp[k - 1], f);
-
-          *mbs = mbs_copy;
-        }
-
-      cb ret;
-      ret.c = c;
-      ret.isbyte = false;
-      return ret;
+      *mbs = copy;
     }
+
+  return c;
 }
 
 cb
@@ -687,91 +614,6 @@ xwcsdup (wchar_t const *string)
   return xmemdup (string, (wcslen(string) + 1) * sizeof(wchar_t));
 }
 
-
-/**** Character iterators */
-
-mb_error
-mbrnext0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
-{
-  if (s == NULL)
-    {
-      *c = L'\0';
-      return MB_ERROR;
-    }
-  if (*s >= end)
-    {
-      *c = L'\0';
-      return MB_EOF;
-    }
-
-  mbstate_t st2 = *state;
-  size_t ret = mbrtowc(c, *s, end - *s, &st2);
-  if (ret == 0)
-    {
-      // Success, but NUL
-
-      if (**s != '\0')
-        {
-          // The next byte is not NUL. Is this possible in a legitimate
-          // multibyte charset? In any case, if it happens, return an
-          // error instead, since we don't know how to advance over it.
-
-          return MB_ERROR;
-        }
-
-      // Advance text pointer and state
-      (*s)++;
-      *c = L'\0';
-      *state = st2;
-      return MB_OK;
-    }
-  else if (ret == (size_t) -1)
-    {
-      // Error
-      // Text pointer and state do not advance
-      *c = L'\0';
-      return MB_ERROR;
-    }
-  else if (ret == (size_t) -2)
-    {
-      // Incomplete multibyte character
-      // Text pointer and state do not advance
-      *c = L'\0';
-      return MB_INCOMPLETE;
-    }
-  else
-    {
-      (*s) += ret;
-      *state = st2;
-      return MB_OK;
-    }
-}
-
-mb_error
-mbrpeek0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
-{
-  const char *ostring = *s;
-  mbstate_t ostate = *state;
-
-  return mbrnext0(c, &ostring, end, &ostate);
-}
-
-mb_error
-mbrafter0(wchar_t *c, const char **s, const char *end, mbstate_t *state)
-{
-  // TODO: callers are relying on seeing L'\0' when calling with *s == end
-  // Is this a good thing to guarantee?
-
-  mbrnext0(c, s, end, state);
-  return mbrpeek0(c, s, end, state);
-}
-
-cb
-cbafter(const char **s, const char *end, mbstate_t *state)
-{
-  cbnext(s, end, state);
-  return cbpeek(s, end, state);
-}
 
 /**** Wide version of lib/strnumcmp-in.h */
 
