@@ -852,4 +852,12 @@ cbmemchr(cb *haystack, wchar_t needle, size_t n)
   return NULL;
 }
 
-
+int charwidth (wchar_t c)
+{
+  if (iswprint (c))
+    return wcwidth (c);
+  else if (iscntrl (c))
+    return 0;
+  else
+    return 1; // unknown, so probably from the future of Unicode
+}

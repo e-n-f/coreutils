@@ -107,8 +107,8 @@ adjust_column (size_t column, cb c)
         column = 0;
       else if (c.c == L'\t')
         column += TAB_WIDTH - column % TAB_WIDTH;
-      else /* if (iswprint (c.c)) */
-        column++;
+      else
+        column += charwidth(c.c);
     }
   else
     {

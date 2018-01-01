@@ -68,4 +68,6 @@ cb cbafter (const char **s, const char *end, mbstate_t *state);
 
 int wstrnumcmp (char const *, char const *, wint_t, wint_t);
 
+int charwidth (wchar_t c);
+
 #endif
