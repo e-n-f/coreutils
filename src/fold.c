@@ -94,7 +94,7 @@ Wrap input lines in each FILE, writing to standard output.\n\
    The first column is 0. */
 
 static size_t
-adjust_column (size_t column, cb c)
+adjust_column (size_t column, grapheme c)
 {
   if (!count_bytes)
     {
@@ -129,10 +129,10 @@ static bool
 fold_file (char const *filename, size_t width)
 {
   FILE *istream;
-  cb c;
+  grapheme c;
   size_t column = 0;		/* Screen column where next char will go. */
   size_t offset_out = 0;	/* Index in 'line_out' for next char. */
-  static cb *line_out = NULL;
+  static grapheme *line_out = NULL;
   static size_t allocated_out = 0;
   int saved_errno;
   mbstate_t mbs = { 0 };
@@ -153,7 +153,7 @@ fold_file (char const *filename, size_t width)
 
   fadvise (istream, FADVISE_SEQUENTIAL);
 
-  while ((c = fgetcb (istream, &mbs)).c != WEOF)
+  while ((c = fgetgr (istream, &mbs)).c != WEOF)
     {
       if (offset_out + 1 >= allocated_out)
         line_out = X2NREALLOC (line_out, &allocated_out);
@@ -163,7 +163,7 @@ fold_file (char const *filename, size_t width)
           line_out[offset_out++] = c;
           for (size_t i = 0; i < offset_out; i++)
             {
-              putcbyte (line_out[i]);
+              putgrapheme (line_out[i]);
             }
           column = offset_out = 0;
           continue;
@@ -201,13 +201,13 @@ fold_file (char const *filename, size_t width)
                   logical_end++;
                   for (size_t i = 0; i < logical_end; i++)
                     {
-                      putcbyte (line_out[i]);
+                      putgrapheme (line_out[i]);
                     }
                   putwchar (L'\n');
                   /* Move the remainder to the beginning of the next line.
                      The areas being copied here might overlap. */
                   memmove (line_out, line_out + logical_end,
-                           (offset_out - logical_end) * sizeof(cb));
+                           (offset_out - logical_end) * sizeof(grapheme));
                   offset_out -= logical_end;
                   for (column = i = 0; i < offset_out; i++)
                     column = adjust_column (column, line_out[i]);
@@ -221,13 +221,13 @@ fold_file (char const *filename, size_t width)
               continue;
             }
 
-          cb c2;
+          grapheme c2;
           c2.isbyte = false;
           c2.c = L'\n';
           line_out[offset_out++] = c2;
           for (size_t i = 0; i < offset_out; i++)
             {
-              putcbyte (line_out[i]);
+              putgrapheme (line_out[i]);
             }
           column = offset_out = 0;
           goto rescan;
@@ -242,7 +242,7 @@ fold_file (char const *filename, size_t width)
     {
       for (size_t i = 0; i < offset_out; i++)
         {
-          putcbyte (line_out[i]);
+          putgrapheme (line_out[i]);
         }
     }
 

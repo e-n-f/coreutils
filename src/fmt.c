@@ -136,7 +136,7 @@ struct Word
 
     /* Static attributes determined during input.  */
 
-    const cb *text;		/* the text of the word */
+    const grapheme *text;		/* the text of the word */
     int length;			/* length of this word */
     int width;			/* width of this word */
     int space;			/* the size of the following space */
@@ -157,11 +157,11 @@ struct Word
 static void set_prefix (const char *p);
 static void fmt (FILE *f, mbstate_t *mbs);
 static bool get_paragraph (FILE *f, mbstate_t *mbs);
-static cb get_line (FILE *f, cb c, mbstate_t *mbs);
-static cb get_prefix (FILE *f, mbstate_t *mbs);
-static cb get_space (FILE *f, cb c, mbstate_t *mbs);
-static cb copy_rest (FILE *f, cb c, mbstate_t *mbs);
-static bool same_para (cb c);
+static grapheme get_line (FILE *f, grapheme c, mbstate_t *mbs);
+static grapheme get_prefix (FILE *f, mbstate_t *mbs);
+static grapheme get_space (FILE *f, grapheme c, mbstate_t *mbs);
+static grapheme copy_rest (FILE *f, grapheme c, mbstate_t *mbs);
+static bool same_para (grapheme c);
 static void flush_paragraph (void);
 static void fmt_paragraph (void);
 static void check_punctuation (WORD *w);
@@ -223,10 +223,10 @@ static int out_column;
 
 /* Space for the paragraph text -- longer paragraphs are handled neatly
    (cf. flush_paragraph()).  */
-static cb parabuf[MAXCHARS];
+static grapheme parabuf[MAXCHARS];
 
 /* A pointer into parabuf, indicating the first unused character position.  */
-static cb *wptr;
+static grapheme *wptr;
 
 /* The words of a paragraph -- longer paragraphs are handled neatly
    (cf. flush_paragraph()).  */
@@ -258,7 +258,7 @@ static int other_indent;
    prefix (next_prefix_indent).  See get_paragraph() and copy_rest().  */
 
 /* The last character read from the input file.  */
-static cb next_char;
+static grapheme next_char;
 
 /* The space before the trimmed prefix (or part of it) on the next line
    after the current paragraph.  */
@@ -572,7 +572,7 @@ set_other_indent (bool same_paragraph)
 static bool
 get_paragraph (FILE *f, mbstate_t *mbs)
 {
-  cb c;
+  grapheme c;
 
   last_line_width = 0;
   c = next_char;
@@ -651,8 +651,8 @@ get_paragraph (FILE *f, mbstate_t *mbs)
    that failed to match the prefix.  In the latter, C is \n or EOF.
    Return the character (\n or EOF) ending the line.  */
 
-static cb
-copy_rest (FILE *f, cb c, mbstate_t *mbs)
+static grapheme
+copy_rest (FILE *f, grapheme c, mbstate_t *mbs)
 {
   const wchar_t *s;
 
@@ -669,8 +669,8 @@ copy_rest (FILE *f, cb c, mbstate_t *mbs)
     }
   while (c.c != L'\n' && c.c != WEOF)
     {
-      putcbyte (c);
-      c = fgetcb (f, mbs);
+      putgrapheme (c);
+      c = fgetgr (f, mbs);
     }
   return c;
 }
@@ -680,7 +680,7 @@ copy_rest (FILE *f, cb c, mbstate_t *mbs)
    otherwise false.  */
 
 static bool
-same_para (cb c)
+same_para (grapheme c)
 {
   return (next_prefix_indent == prefix_indent
           && in_column >= next_prefix_indent + prefix_full_width
@@ -695,11 +695,11 @@ same_para (cb c)
 
    Return the first non-blank character of the next line.  */
 
-static cb 
-get_line (FILE *f, cb c, mbstate_t *mbs)
+static grapheme
+get_line (FILE *f, grapheme c, mbstate_t *mbs)
 {
   int start;
-  cb *end_of_parabuf;
+  grapheme *end_of_parabuf;
   WORD *end_of_word;
 
   end_of_parabuf = &parabuf[MAXCHARS];
@@ -719,7 +719,7 @@ get_line (FILE *f, cb c, mbstate_t *mbs)
               flush_paragraph ();
             }
           *wptr++ = c;
-          c = fgetcb (f, mbs);
+          c = fgetgr (f, mbs);
         }
       while (c.c != EOF && !iswspace (c.c));
       word_limit->length = wptr - word_limit->text;
@@ -756,13 +756,13 @@ get_line (FILE *f, cb c, mbstate_t *mbs)
 /* Read a prefix from input file F.  Return either first non-matching
    character, or first non-blank character after the prefix.  */
 
-static cb
+static grapheme
 get_prefix (FILE *f, mbstate_t *mbs)
 {
-  cb c;
+  grapheme c;
 
   in_column = 0;
-  c = get_space (f, fgetcb (f, mbs), mbs);
+  c = get_space (f, fgetgr (f, mbs), mbs);
   if (prefix_length == 0)
     next_prefix_indent = prefix_lead_space < in_column ?
       prefix_lead_space : in_column;
@@ -776,7 +776,7 @@ get_prefix (FILE *f, mbstate_t *mbs)
           if (c.c != pc)
             return c;
           in_column += charwidth (pc);
-          c = fgetcb (f, mbs);
+          c = fgetgr (f, mbs);
         }
       c = get_space (f, c, mbs);
     }
@@ -786,8 +786,8 @@ get_prefix (FILE *f, mbstate_t *mbs)
 /* Read blank characters from input file F, starting with C, and keeping
    in_column up-to-date.  Return first non-blank character.  */
 
-static cb
-get_space (FILE *f, cb c, mbstate_t *mbs)
+static grapheme
+get_space (FILE *f, grapheme c, mbstate_t *mbs)
 {
   while (true)
     {
@@ -800,7 +800,7 @@ get_space (FILE *f, cb c, mbstate_t *mbs)
         }
       else
         return c;
-      c = fgetcb (f, mbs);
+      c = fgetgr (f, mbs);
     }
 }
 
@@ -809,9 +809,9 @@ get_space (FILE *f, cb c, mbstate_t *mbs)
 static void
 check_punctuation (WORD *w)
 {
-  cb const *start = w->text;
-  cb const *finish = start + (w->length - 1);
-  cb fin = *finish;
+  grapheme const *start = w->text;
+  grapheme const *finish = start + (w->length - 1);
+  grapheme fin = *finish;
 
   w->paren = iswopen (start->c);
   w->punct = !! iswpunct (fin.c);
@@ -837,7 +837,7 @@ flush_paragraph (void)
     {
       for (size_t i = 0; i < wptr - parabuf; i++)
         {
-          putcbyte (parabuf[i]);
+          putgrapheme (parabuf[i]);
         }
       wptr = parabuf;
       return;
@@ -870,7 +870,7 @@ flush_paragraph (void)
   /* Copy text of words down to start of parabuf -- we use memmove because
      the source and target may overlap.  */
 
-  memmove (parabuf, split_point->text, (wptr - split_point->text) * sizeof(cb));
+  memmove (parabuf, split_point->text, (wptr - split_point->text) * sizeof(grapheme));
   shift = split_point->text - parabuf;
   wptr -= shift;
 
@@ -1040,12 +1040,12 @@ put_line (WORD *w, int indent)
 static void
 put_word (WORD *w)
 {
-  const cb *s;
+  const grapheme *s;
   int n;
 
   s = w->text;
   for (n = w->length; n != 0; n--)
-    putcbyte (*s++);
+    putgrapheme (*s++);
   for (size_t i = 0; i < w->length; i++)
     out_column += charwidth (w->text[i].c);
 }

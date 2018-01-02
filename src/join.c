@@ -68,14 +68,14 @@ struct outlist
 /* A field of a line.  */
 struct field
   {
-    cb *beg;		/* First character in field.  */
+    grapheme *beg;		/* First character in field.  */
     size_t len;			/* The length of the field.  */
   };
 
 /* A line read from an input file.  */
 struct line
   {
-    struct cblinebuffer buf;	/* The line itself.  */
+    struct grlinebuffer buf;	/* The line itself.  */
     size_t nfields;		/* Number of elements in 'fields'.  */
     size_t nfields_allocated;	/* Number of elements allocated for 'fields'. */
     struct field *fields;
@@ -257,7 +257,7 @@ warning message will be given.\n\
 /* Record a field in LINE, with location FIELD and size LEN.  */
 
 static void
-extract_field (struct line *line, cb *field, size_t len)
+extract_field (struct line *line, grapheme *field, size_t len)
 {
   if (line->nfields >= line->nfields_allocated)
     {
@@ -273,16 +273,16 @@ extract_field (struct line *line, cb *field, size_t len)
 static void
 xfields (struct line *line)
 {
-  cb *ptr = line->buf.buffer;
-  cb const *lim = ptr + line->buf.length - 1;
+  grapheme *ptr = line->buf.buffer;
+  grapheme const *lim = ptr + line->buf.length - 1;
 
   if (ptr == lim)
     return;
 
   if (0 <= tab && tab != '\n')
     {
-      cb *sep;
-      for (; (sep = cbmemchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
+      grapheme *sep;
+      for (; (sep = grmemchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
         extract_field (line, ptr, sep - ptr);
     }
   else if (tab < 0)
@@ -294,7 +294,7 @@ xfields (struct line *line)
 
       do
         {
-          cb *sep;
+          grapheme *sep;
           for (sep = ptr + 1; sep != lim && ! wfield_sep (sep->c); sep++)
             continue;
           extract_field (line, ptr, sep - ptr);
@@ -330,8 +330,8 @@ keycmp (struct line const *line1, struct line const *line2,
         size_t jf_1, size_t jf_2)
 {
   /* Start of field to compare in each file.  */
-  cb *beg1;
-  cb *beg2;
+  grapheme *beg1;
+  grapheme *beg2;
 
   size_t len1;
   size_t len2;		/* Length of fields to compare.  */
@@ -364,9 +364,9 @@ keycmp (struct line const *line1, struct line const *line2,
   if (len2 == 0)
     return 1;
 
-  cb tmp1[len1], tmp2[len2];
-  memcpy(tmp1, beg1, len1 * sizeof(cb));
-  memcpy(tmp2, beg2, len2 * sizeof(cb));
+  grapheme tmp1[len1], tmp2[len2];
+  memcpy(tmp1, beg1, len1 * sizeof(grapheme));
+  memcpy(tmp2, beg2, len2 * sizeof(grapheme));
 
   if (ignore_case)
     {
@@ -386,8 +386,8 @@ keycmp (struct line const *line1, struct line const *line2,
     }
 
   if (hard_LC_COLLATE)
-    return xcbmemcoll (tmp1, len1, tmp2, len2);
-  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof(cb));
+    return xgrmemcoll (tmp1, len1, tmp2, len2);
+  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof(grapheme));
 
   if (diff)
     return diff;
@@ -431,7 +431,7 @@ check_order (const struct line *prev,
                       ? EXIT_FAILURE : 0),
                      0, _("%s:%"PRIuMAX": is not sorted: %s"),
                      g_names[whatfile - 1], line_no[whatfile - 1],
-                     cbnstr(current->buf.buffer, len));
+                     grnstr(current->buf.buffer, len));
 
               /* If we get to here, the message was merely a warning.
                  Arrange to issue it only once per file.  */
@@ -474,7 +474,7 @@ get_line (FILE *fp, struct line **linep, int which, mbstate_t *mbs)
   else
     line = init_linep (linep);
 
-  if (! readcblinebuffer_delim (&line->buf, fp, eolchar, mbs))
+  if (! readgrlinebuffer_delim (&line->buf, fp, eolchar, mbs))
     {
       if (ferror (fp))
         die (EXIT_FAILURE, errno, _("read error"));
@@ -571,7 +571,7 @@ prfield (size_t n, struct line const *line)
         {
           for (size_t i = 0; i < len; i++)
             {
-              putcbyte (line->fields[n].beg[i]);
+              putgrapheme (line->fields[n].beg[i]);
             }
         }
       else if (empty_filler)

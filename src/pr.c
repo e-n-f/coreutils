@@ -404,7 +404,7 @@ struct COLUMN
     bool (*print_func) (struct COLUMN *);
 
     /* Func to print/store chars in this col. */
-    void (*char_func) (cb);
+    void (*char_func) (grapheme);
 
     int current_line;		/* Index of current place in line_vector. */
     int lines_stored;		/* Number of lines stored in buff. */
@@ -421,7 +421,7 @@ struct COLUMN
 
 typedef struct COLUMN COLUMN;
 
-static int char_to_clump (cb c);
+static int char_to_clump (grapheme c);
 static bool read_line (COLUMN *p);
 static bool print_page (void);
 static bool print_stored (COLUMN *p);
@@ -442,11 +442,11 @@ static void init_funcs (void);
 static void init_store_cols (void);
 static void store_columns (void);
 static void balance (int total_stored);
-static void store_char (cb c);
+static void store_char (grapheme c);
 static void pad_down (unsigned int lines);
 static void read_rest_of_line (COLUMN *p);
 static void skip_read (COLUMN *p, int column_number);
-static void print_char (cb c);
+static void print_char (grapheme c);
 static void cleanup (void);
 static void print_sep_string (void);
 static void separator_string (const char *optarg_S);
@@ -458,7 +458,7 @@ static COLUMN *column_vector;
    we store the leftmost columns contiguously in buff.
    To print a line from buff, get the index of the first character
    from line_vector[i], and print up to line_vector[i + 1]. */
-static cb *buff;
+static grapheme *buff;
 
 /* Index of the position in buff where the next character
    will be stored. */
@@ -726,7 +726,7 @@ static char const *file_text;
 /* Output columns available, not counting the date and file name.  */
 static int header_width_available;
 
-static cb *clump_buff;
+static grapheme *clump_buff;
 
 /* True means we read the line no. lines_per_body in skip_read
    called by skip_to_page. That variable controls the coincidence of a
@@ -1179,7 +1179,7 @@ getoptarg (const char *arg, char switch_char, wchar_t *character, int *number)
   if (*arg && !ISDIGIT (*arg))
     {
       mbstate_t mbs = { 0 };
-      cb c = cbnext(&arg, arg + strlen(arg), &mbs);
+      grapheme c = grnext(&arg, arg + strlen(arg), &mbs);
       if (c.c == WEOF)
         die (EXIT_FAILURE, errno, _("text conversion: %s"), quote(arg));
       *character = c.c;
@@ -1308,7 +1308,7 @@ init_parameters (int number_of_files)
      We've to use 8 as the lower limit, if we use chars_per_default_tab = 8
      to expand a tab which is not an input_tab-char. */
   free (clump_buff);
-  clump_buff = xmalloc (MAX (8, chars_per_input_tab) * sizeof(cb));
+  clump_buff = xmalloc (MAX (8, chars_per_input_tab) * sizeof(grapheme));
 }
 
 /* Open the necessary files,
@@ -1926,7 +1926,7 @@ init_store_cols (void)
   end_vector = xnmalloc (total_lines, sizeof *end_vector);
 
   free (buff);
-  buff = xnmalloc (chars_if_truncate, (use_col_separator + 1) * sizeof(cb));
+  buff = xnmalloc (chars_if_truncate, (use_col_separator + 1) * sizeof(grapheme));
   buff_allocated = chars_if_truncate;  /* Tune this. */
   buff_allocated *= use_col_separator + 1;
 }
@@ -2017,7 +2017,7 @@ balance (int total_stored)
 /* Store a character in the buffer. */
 
 static void
-store_char (cb c)
+store_char (grapheme c)
 {
   if (buff_current >= buff_allocated)
     {
@@ -2041,7 +2041,7 @@ add_line_number (COLUMN *p)
   s = number_buff + (num_width - chars_per_number);
   for (i = chars_per_number; i > 0; i--)
     {
-      cb c;
+      grapheme c;
       c.c = btowc(*s++);
       c.isbyte = false;
       (p->char_func) (c);
@@ -2057,13 +2057,13 @@ add_line_number (COLUMN *p)
           i = number_width - chars_per_number;
           while (i-- > 0)
             {
-              cb c = { .c = L' ', .isbyte = false };
+              grapheme c = { .c = L' ', .isbyte = false };
               (p->char_func) (c);
             }
         }
       else
         {
-          cb c = { .c = number_separator, .isbyte = false };
+          grapheme c = { .c = number_separator, .isbyte = false };
           (p->char_func) (c);
         }
     }
@@ -2072,7 +2072,7 @@ add_line_number (COLUMN *p)
        separator with a single column output. No column_width requirement
        has to be considered. */
     {
-      cb c = { .c = number_separator, .isbyte = false };
+      grapheme c = { .c = number_separator, .isbyte = false };
       (p->char_func) (c);
       if (number_separator == L'\t')
         output_position = POS_AFTER_TAB (chars_per_output_tab,
@@ -2125,16 +2125,16 @@ pad_down (unsigned int lines)
 static void
 read_rest_of_line (COLUMN *p)
 {
-  cb c;
+  grapheme c;
   FILE *f = p->fp;
 
-  while ((c = fgetcb (f, &p->mbs)).c != L'\n')
+  while ((c = fgetgr (f, &p->mbs)).c != L'\n')
     {
       if (c.c == L'\f')
         {
-          c = fpeekcb (p->fp, &p->mbs);
+          c = fpeekgr (p->fp, &p->mbs);
           if (c.c == L'\n')
-            c = fgetcb (p->fp, &p->mbs);
+            c = fgetgr (p->fp, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);
@@ -2160,18 +2160,18 @@ read_rest_of_line (COLUMN *p)
 static void
 skip_read (COLUMN *p, int column_number)
 {
-  cb c;
+  grapheme c;
   FILE *f = p->fp;
   int i;
   bool single_ff = false;
   COLUMN *q;
 
   /* Read 1st character in a line or any character succeeding a FF */
-  if ((c = fgetcb (f, &p->mbs)).c == L'\f' && p->full_page_printed)
+  if ((c = fgetgr (f, &p->mbs)).c == L'\f' && p->full_page_printed)
     /* A FF-coincidence with a previous full_page_printed.
        To avoid an additional empty page, eliminate the FF */
-    if ((c = fgetcb (f, &p->mbs)).c == L'\n')
-      c = fgetcb (f, &p->mbs);
+    if ((c = fgetgr (f, &p->mbs)).c == L'\n')
+      c = fgetgr (f, &p->mbs);
 
   p->full_page_printed = false;
 
@@ -2200,9 +2200,9 @@ skip_read (COLUMN *p, int column_number)
                 p->full_page_printed = false;
             }
 
-          c = fpeekcb (f, &p->mbs);
+          c = fpeekgr (f, &p->mbs);
           if (c.c == L'\n')
-            c = fgetcb (f, &p->mbs);
+            c = fgetgr (f, &p->mbs);
           hold_file (p);
           break;
         }
@@ -2211,7 +2211,7 @@ skip_read (COLUMN *p, int column_number)
           close_file (p);
           break;
         }
-      c = fgetcb (f, &p->mbs);
+      c = fgetgr (f, &p->mbs);
     }
 
   if (skip_count)
@@ -2296,7 +2296,7 @@ print_sep_string (void)
    characters. */
 
 static void
-print_clump (COLUMN *p, int n, cb *clump)
+print_clump (COLUMN *p, int n, grapheme *clump)
 {
   while (n--)
     (p->char_func) (*clump++);
@@ -2312,7 +2312,7 @@ print_clump (COLUMN *p, int n, cb *clump)
    required number of tabs and spaces. */
 
 static void
-print_char (cb c)
+print_char (grapheme c)
 {
   if (tabify_output)
     {
@@ -2329,7 +2329,7 @@ print_char (cb c)
       else
         output_position += charwidth (c.c);
     }
-  putcbyte (c);
+  putgrapheme (c);
 }
 
 /* Skip to page PAGE before printing.
@@ -2438,28 +2438,28 @@ print_header (void)
 static bool
 read_line (COLUMN *p)
 {
-  cb c;
+  grapheme c;
   int chars IF_LINT ( = 0);
   int last_input_position;
   int j, k;
   COLUMN *q;
 
   /* read 1st character in each line or any character succeeding a FF: */
-  c = fgetcb (p->fp, &p->mbs);
+  c = fgetgr (p->fp, &p->mbs);
 
   last_input_position = input_position;
 
   if (c.c == L'\f' && p->full_page_printed)
-    if ((c = fgetcb (p->fp, &p->mbs)).c == L'\n')
-      c = fgetcb (p->fp, &p->mbs);
+    if ((c = fgetgr (p->fp, &p->mbs)).c == L'\n')
+      c = fgetgr (p->fp, &p->mbs);
   p->full_page_printed = false;
 
   switch (c.c)
     {
     case L'\f':
-      c = fpeekcb (p->fp, &p->mbs);
+      c = fpeekgr (p->fp, &p->mbs);
       if (c.c == L'\n')
-        c = fgetcb (p->fp, &p->mbs);
+        c = fgetgr (p->fp, &p->mbs);
       FF_only = true;
       if (print_a_header && !storing_columns)
         {
@@ -2531,16 +2531,16 @@ read_line (COLUMN *p)
 
   while (true)
     {
-      c = fgetcb (p->fp, &p->mbs);
+      c = fgetgr (p->fp, &p->mbs);
 
       switch (c.c)
         {
         case L'\n':
           return true;
         case L'\f':
-          c = fpeekcb (p->fp, &p->mbs);
+          c = fpeekgr (p->fp, &p->mbs);
           if (c.c == L'\n')
-            c = fgetcb (p->fp, &p->mbs);
+            c = fgetgr (p->fp, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);
@@ -2582,7 +2582,7 @@ print_stored (COLUMN *p)
   COLUMN *q;
 
   int line = p->current_line++;
-  cb *first = &buff[line_vector[line]];
+  grapheme *first = &buff[line_vector[line]];
   /* FIXME
      UMR: Uninitialized memory read:
      * This is occurring while in:
@@ -2594,7 +2594,7 @@ print_stored (COLUMN *p)
      xmalloc        [xmalloc.c:94]
      init_store_cols [pr.c:1648]
      */
-  cb *last = &buff[line_vector[line + 1]];
+  grapheme *last = &buff[line_vector[line + 1]];
 
   pad_vertically = true;
 
@@ -2649,9 +2649,9 @@ print_stored (COLUMN *p)
    number of characters is 1.) */
 
 static int
-char_to_clump (cb c)
+char_to_clump (grapheme c)
 {
-  cb *s = clump_buff;
+  grapheme *s = clump_buff;
   int i;
   wchar_t esc_buff[4];
   int width;
@@ -2669,7 +2669,7 @@ char_to_clump (cb c)
         {
           for (i = width; i; --i)
             {
-              cb space = { .c = ' ', .isbyte = false };
+              grapheme space = { .c = ' ', .isbyte = false };
               *s++ = space;
             }
           chars = width;
@@ -2687,12 +2687,12 @@ char_to_clump (cb c)
         {
           width = 4;
           chars = 4;
-          cb bs = { .c = L'\\', .isbyte = false };
+          grapheme bs = { .c = L'\\', .isbyte = false };
           *s++ = bs;
           swprintf (esc_buff, 4, L"%03o", c.c);
           for (i = 0; i <= 2; ++i)
             {
-              cb oct = { .c = esc_buff[i], .isbyte = false };
+              grapheme oct = { .c = esc_buff[i], .isbyte = false };
               *s++ = oct;
             }
         }
@@ -2703,7 +2703,7 @@ char_to_clump (cb c)
               width = 2;
               chars = 2;
 
-              cb ch = { .c = L'^', .isbyte = false };
+              grapheme ch = { .c = L'^', .isbyte = false };
               *s++ = ch;
               ch.c = c.c ^ 0100;
               *s = ch;
@@ -2712,12 +2712,12 @@ char_to_clump (cb c)
             {
               width = 4;
               chars = 4;
-              cb bs = { .c = L'\\', .isbyte = false };
+              grapheme bs = { .c = L'\\', .isbyte = false };
               *s++ = bs;
               swprintf (esc_buff, 4, L"%03o", c.c);
               for (i = 0; i <= 2; ++i)
                 {
-                  cb oct = { .c = esc_buff[i], .isbyte = false };
+                  grapheme oct = { .c = esc_buff[i], .isbyte = false };
                   *s++ = oct;
                 }
             }

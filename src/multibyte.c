@@ -26,14 +26,14 @@
 # define IF_LINT(Code) /* empty */
 #endif
 
-cb
-cbnext (const char **s, const char *end, mbstate_t *mbs)
+grapheme
+grnext (const char **s, const char *end, mbstate_t *mbs)
 {
   // No bytes remained, so this is EOF
 
   if (*s == NULL || *s >= end)
     {
-      cb ret;
+      grapheme ret;
 
       ret.c = WEOF;
       ret.isbyte = false;
@@ -63,7 +63,7 @@ cbnext (const char **s, const char *end, mbstate_t *mbs)
       if (j > end - *s)
         j = end - *s;
 
-      cb ret;
+      grapheme ret;
       ret.c = L'\0';
       ret.isbyte = false;
 
@@ -79,7 +79,7 @@ cbnext (const char **s, const char *end, mbstate_t *mbs)
       // Leave the decoding state however it was, since nothing was
       // decoded.
 
-      cb ret;
+      grapheme ret;
       ret.c = (unsigned char) **s;
       ret.isbyte = true;
 
@@ -92,7 +92,7 @@ cbnext (const char **s, const char *end, mbstate_t *mbs)
       // Legitimate wide character.  Put as many bytes as were not used back
       // into the stream, and return the character.
 
-      cb ret;
+      grapheme ret;
       ret.c = c;
       ret.isbyte = false;
 
@@ -103,29 +103,29 @@ cbnext (const char **s, const char *end, mbstate_t *mbs)
     }
 }
 
-cb
-cbpeek (const char **s, const char *end, mbstate_t *mbs)
+grapheme
+grpeek (const char **s, const char *end, mbstate_t *mbs)
 {
   const char *tmps = *s;
   mbstate_t tmpmbs = *mbs;
-  return cbnext(&tmps, end, &tmpmbs);
+  return grnext(&tmps, end, &tmpmbs);
 }
 
-cb
-cbafter(const char **s, const char *end, mbstate_t *state)
+grapheme
+grafter(const char **s, const char *end, mbstate_t *state)
 {
-  cbnext(s, end, state);
-  return cbpeek(s, end, state);
+  grnext(s, end, state);
+  return grpeek(s, end, state);
 }
 
 /**** Binary-tolerant I/O */
 
-static cb
-fgetcb_internal(FILE *f, mbstate_t *mbs, bool peek)
+static grapheme
+fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
 {
   char tmp[MB_CUR_MAX];
   mbstate_t copy;
-  cb c;
+  grapheme c;
 
   // Special case for the common case of a valid character
   // from just one byte.
@@ -166,7 +166,7 @@ fgetcb_internal(FILE *f, mbstate_t *mbs, bool peek)
   copy = *mbs;
   const char *s = tmp;
 
-  c = cbnext(&s, s + i, &copy);
+  c = grnext(&s, s + i, &copy);
 
   if (peek)
     {
@@ -186,20 +186,20 @@ fgetcb_internal(FILE *f, mbstate_t *mbs, bool peek)
   return c;
 }
 
-cb
-fgetcb(FILE *f, mbstate_t *mbs)
+grapheme
+fgetgr(FILE *f, mbstate_t *mbs)
 {
-  return fgetcb_internal(f, mbs, false);
+  return fgetgr_internal(f, mbs, false);
 }
 
-cb
-fpeekcb(FILE *f, mbstate_t *mbs)
+grapheme
+fpeekgr(FILE *f, mbstate_t *mbs)
 {
-  return fgetcb_internal(f, mbs, true);
+  return fgetgr_internal(f, mbs, true);
 }
 
-cb
-fputcb(cb c, FILE *f)
+grapheme
+fputgr(grapheme c, FILE *f)
 {
   if (c.isbyte)
     {
@@ -222,24 +222,24 @@ fputcb(cb c, FILE *f)
     }
 }
 
-cb
-putcbyte(cb c)
+grapheme
+putgrapheme(grapheme c)
 {
-  return fputcb(c, stdout);
+  return fputgr(c, stdout);
 }
 
-cb
-getcbyte(mbstate_t *mbs)
+grapheme
+getgrapheme(mbstate_t *mbs)
 {
-  return fgetcb(stdin, mbs);
+  return fgetgr(stdin, mbs);
 }
 
 /**** Wide version of linebuffer.c */
 
-/* Initialize cblinebuffer LINEBUFFER for use. */
+/* Initialize grlinebuffer LINEBUFFER for use. */
 
 void
-initcbbuffer (struct cblinebuffer *linebuffer)
+initgrbuffer (struct grlinebuffer *linebuffer)
 {
   memset (linebuffer, 0, sizeof *linebuffer);
 }
@@ -255,21 +255,21 @@ initcbbuffer (struct cblinebuffer *linebuffer)
    invoking ferror (stream).
    Otherwise, return LINEBUFFER.  */
 
-struct cblinebuffer *
-readcblinebuffer_delim (struct cblinebuffer *linebuffer, FILE *stream,
+struct grlinebuffer *
+readgrlinebuffer_delim (struct grlinebuffer *linebuffer, FILE *stream,
                        wchar_t delimiter, mbstate_t *mbs)
 {
-  cb c;
-  cb *buffer = linebuffer->buffer;
-  cb *p = linebuffer->buffer;
-  cb *end = buffer + linebuffer->size; /* Sentinel. */
+  grapheme c;
+  grapheme *buffer = linebuffer->buffer;
+  grapheme *p = linebuffer->buffer;
+  grapheme *end = buffer + linebuffer->size; /* Sentinel. */
 
   if (feof (stream))
     return NULL;
 
   do
     {
-      c = fgetcb (stream, mbs);
+      c = fgetgr (stream, mbs);
       if (c.c == WEOF)
         {
           if (p == buffer || ferror (stream))
@@ -282,7 +282,7 @@ readcblinebuffer_delim (struct cblinebuffer *linebuffer, FILE *stream,
       if (p == end)
         {
           size_t oldsize = linebuffer->size;
-          buffer = x2nrealloc (buffer, &linebuffer->size, sizeof(cb));
+          buffer = x2nrealloc (buffer, &linebuffer->size, sizeof(grapheme));
           p = buffer + oldsize;
           linebuffer->buffer = buffer;
           end = buffer + linebuffer->size;
@@ -397,7 +397,7 @@ xwmemcoll (wchar_t *s1, size_t s1len, wchar_t *s2, size_t s2len)
 }
 
 int
-xcbmemcoll (cb *s1, size_t s1len, cb *s2, size_t s2len)
+xgrmemcoll (grapheme *s1, size_t s1len, grapheme *s2, size_t s2len)
 {
   wchar_t tmp1[s1len];
   wchar_t tmp2[s2len];
@@ -438,7 +438,7 @@ wquote (const wchar_t *s)
 }
 
 const char *
-cbnstr (const cb *s, size_t n)
+grnstr (const grapheme *s, size_t n)
 {
   size_t bytes = MB_LEN_MAX * (n + 1);
   char tmp[bytes];
@@ -494,20 +494,20 @@ xwcsndup (const wchar_t *string, size_t n)
 #define MIN_CHUNK 64
 
 ssize_t
-cbgetndelim2 (cb **lineptr, size_t *linesize, size_t offset, size_t nmax,
+grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
             wchar_t delim1, wchar_t delim2, FILE *stream, mbstate_t *mbs)
 {
   size_t nbytes_avail;          /* Allocated but unused bytes in *LINEPTR.  */
-  cb *read_pos;               /* Where we're reading into *LINEPTR. */
+  grapheme *read_pos;               /* Where we're reading into *LINEPTR. */
   ssize_t bytes_stored = -1;
-  cb *ptr = *lineptr;
+  grapheme *ptr = *lineptr;
   size_t size = *linesize;
   bool found_delimiter;
 
   if (!ptr)
     {
       size = nmax < MIN_CHUNK ? nmax : MIN_CHUNK;
-      ptr = malloc (size * sizeof(cb));
+      ptr = malloc (size * sizeof(grapheme));
       if (!ptr)
         return -1;
     }
@@ -535,17 +535,17 @@ cbgetndelim2 (cb **lineptr, size_t *linesize, size_t offset, size_t nmax,
       /* Here always ptr + size == read_pos + nbytes_avail.
          Also nbytes_avail > 0 || size < nmax.  */
 
-      cb c;
+      grapheme c;
       c.c = L'\0';
       c.isbyte = false;
 
-      const cb *buffer;
+      const grapheme *buffer;
       size_t buffer_len;
 
       buffer = NULL;
       if (true)
         {
-          c = fgetcb (stream, mbs);
+          c = fgetgr (stream, mbs);
           if (c.c == WEOF)
             {
               /* Return partial line, if any.  */
@@ -568,7 +568,7 @@ cbgetndelim2 (cb **lineptr, size_t *linesize, size_t offset, size_t nmax,
           /* Grow size proportionally, not linearly, to avoid O(n^2)
              running time.  */
           size_t newsize = size < MIN_CHUNK ? size + MIN_CHUNK : 2 * size;
-          cb *newptr;
+          grapheme *newptr;
 
           /* Increase newsize so that it becomes
              >= (read_pos - ptr) + buffer_len.  */
@@ -587,7 +587,7 @@ cbgetndelim2 (cb **lineptr, size_t *linesize, size_t offset, size_t nmax,
             }
 
           nbytes_avail = newsize - (read_pos - ptr);
-          newptr = realloc (ptr, newsize * sizeof(cb));
+          newptr = realloc (ptr, newsize * sizeof(grapheme));
           if (!newptr)
             goto unlock_done;
           ptr = newptr;
@@ -614,7 +614,7 @@ cbgetndelim2 (cb **lineptr, size_t *linesize, size_t offset, size_t nmax,
 
   /* Done - NUL terminate and return the number of bytes read.
      At this point we know that nbytes_avail >= 1.  */
-  cb c;
+  grapheme c;
   c.c = L'\0';
   c.isbyte = false;
   *read_pos = c;
@@ -655,25 +655,25 @@ ISWDIGIT(wchar_t c)
 static inline int _GL_ATTRIBUTE_PURE
 wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbsa, mbstate_t *mbsb)
 {
-  cb ca, cb;
+  grapheme ca, cb;
   const char *aend = a + strlen(a);
   const char *bend = b + strlen(b);
 
-  ca = cbpeek (&a, aend, mbsa);
-  cb = cbpeek (&b, bend, mbsb);
+  ca = grpeek (&a, aend, mbsa);
+  cb = grpeek (&b, bend, mbsb);
 
   if (ca.c == decimal_point && cb.c == decimal_point)
     {
       while (1)
         {
-          ca = cbnext (&a, aend, mbsa);
-          cb = cbnext (&b, bend, mbsb);
+          ca = grnext (&a, aend, mbsa);
+          cb = grnext (&b, bend, mbsb);
 
           if (ca.c != cb.c)
             break;
 
-          ca = cbpeek (&a, aend, mbsa);
-          cb = cbpeek (&b, bend, mbsb);
+          ca = grpeek (&a, aend, mbsa);
+          cb = grpeek (&b, bend, mbsb);
 
           if (!ISWDIGIT (ca.c))
             return 0;
@@ -691,28 +691,28 @@ wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbs
     }
   else if (ca.c == decimal_point)
     {
-      ca = cbnext (&a, aend, mbsa);
+      ca = grnext (&a, aend, mbsa);
     a_trailing_nonzero:
-      for (; (ca = cbpeek (&a, aend, mbsa)).c != WEOF; ca = cbnext (&a, aend, mbsa))
+      for (; (ca = grpeek (&a, aend, mbsa)).c != WEOF; ca = grnext (&a, aend, mbsa))
         {
           if (ca.c != WNUMERIC_ZERO)
             break;
         }
 
-      ca = cbnext (&a, aend, mbsa);
+      ca = grnext (&a, aend, mbsa);
       return ISWDIGIT (ca.c);
     }
   else if (cb.c == decimal_point)
     {
-      cb = cbnext (&b, bend, mbsb);
+      cb = grnext (&b, bend, mbsb);
     b_trailing_nonzero:
-      for (; (cb = cbpeek (&b, bend, mbsb)).c != WEOF; cb = cbnext (&b, bend, mbsb))
+      for (; (cb = grpeek (&b, bend, mbsb)).c != WEOF; cb = grnext (&b, bend, mbsb))
         {
           if (cb.c != WNUMERIC_ZERO)
             break;
         }
 
-      cb = cbnext (&b, bend, mbsb);
+      cb = grnext (&b, bend, mbsb);
       return ISWDIGIT (cb.c);
     }
   return 0;
@@ -726,45 +726,45 @@ wnumcompare (char const *a, char const *b,
   size_t log_a;
   size_t log_b;
 
-  cb tmpa, tmpb;
+  grapheme tmpa, tmpb;
   const char *aend = a + strlen(a), *bend = b + strlen(b);
   mbstate_t mbsa = { 0 }, mbsb = { 0 };
 
-  tmpa = cbpeek (&a, aend, &mbsa);
-  tmpb = cbpeek (&b, bend, &mbsb);
+  tmpa = grpeek (&a, aend, &mbsa);
+  tmpb = grpeek (&b, bend, &mbsb);
 
   if (tmpa.c == WNEGATION_SIGN)
     {
       do
-        tmpa = cbafter (&a, aend, &mbsa);
+        tmpa = grafter (&a, aend, &mbsa);
       while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF));
       if (tmpb.c != WNEGATION_SIGN)
         {
           if (tmpa.c == decimal_point)
             do
-              tmpa = cbafter (&a, aend, &mbsa);
+              tmpa = grafter (&a, aend, &mbsa);
             while (tmpa.c == WNUMERIC_ZERO);
           if (ISWDIGIT (tmpa.c))
             return -1;
           while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF))
-            tmpb = cbafter (&b, bend, &mbsb);
+            tmpb = grafter (&b, bend, &mbsb);
           if (tmpb.c == decimal_point)
             do
-              tmpb = cbafter(&b, bend, &mbsb);
+              tmpb = grafter(&b, bend, &mbsb);
             while (tmpb.c == WNUMERIC_ZERO);
           return - ISWDIGIT (tmpb.c);
         }
       do
-        tmpb = cbafter (&b, bend, &mbsb);
+        tmpb = grafter (&b, bend, &mbsb);
       while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF));
 
       while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))
         {
           do
-            tmpa = cbafter (&a, aend, &mbsa);
+            tmpa = grafter (&a, aend, &mbsa);
           while (tmpa.c == thousands_sep && thousands_sep != WEOF);
           do
-            tmpb = cbafter (&b, bend, &mbsb);
+            tmpb = grafter (&b, bend, &mbsb);
           while (tmpb.c == thousands_sep && thousands_sep != WEOF);
         }
 
@@ -776,12 +776,12 @@ wnumcompare (char const *a, char const *b,
 
       for (log_a = 0; ISWDIGIT (tmpa.c); ++log_a)
         do
-          tmpa = cbafter (&a, aend, &mbsa);
+          tmpa = grafter (&a, aend, &mbsa);
         while (tmpa.c == thousands_sep && thousands_sep != WEOF);
 
       for (log_b = 0; ISWDIGIT (tmpb.c); ++log_b)
         do
-          tmpb = cbafter (&b, bend, &mbsb);
+          tmpb = grafter (&b, bend, &mbsb);
         while (tmpb.c == thousands_sep && thousands_sep != WEOF);
 
       if (log_a != log_b)
@@ -795,36 +795,36 @@ wnumcompare (char const *a, char const *b,
   else if (tmpb.c == WNEGATION_SIGN)
     {
       do
-        tmpb = cbafter (&b, bend, &mbsb);
+        tmpb = grafter (&b, bend, &mbsb);
       while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF));
       if (tmpb.c == decimal_point)
         do
-          tmpb = cbafter (&b, bend, &mbsb);
+          tmpb = grafter (&b, bend, &mbsb);
         while (tmpb.c == WNUMERIC_ZERO);
       if (ISWDIGIT (tmpb.c))
         return 1;
       while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF))
-        tmpa = cbafter (&a, aend, &mbsa);
+        tmpa = grafter (&a, aend, &mbsa);
       if (tmpa.c == decimal_point)
         do
-          tmpa = cbafter (&a, aend, &mbsa);
+          tmpa = grafter (&a, aend, &mbsa);
         while (tmpa.c == WNUMERIC_ZERO);
       return ISWDIGIT (tmpa.c);
     }
   else
     {
       while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF))
-        tmpa = cbafter (&a, aend, &mbsa);
+        tmpa = grafter (&a, aend, &mbsa);
       while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF))
-        tmpb = cbafter (&b, bend, &mbsb);
+        tmpb = grafter (&b, bend, &mbsb);
 
       while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))
         {
           do
-            tmpa = cbafter (&a, aend, &mbsa);
+            tmpa = grafter (&a, aend, &mbsa);
           while (tmpa.c == thousands_sep && thousands_sep != WEOF);
           do
-            tmpb = cbafter (&b, bend, &mbsb);
+            tmpb = grafter (&b, bend, &mbsb);
           while (tmpb.c == thousands_sep && thousands_sep != WEOF);
         }
 
@@ -836,12 +836,12 @@ wnumcompare (char const *a, char const *b,
 
       for (log_a = 0; ISWDIGIT (tmpa.c); ++log_a)
         do
-          tmpa = cbafter (&a, aend, &mbsa);
+          tmpa = grafter (&a, aend, &mbsa);
         while (tmpa.c == thousands_sep && thousands_sep != WEOF);
 
       for (log_b = 0; ISWDIGIT (tmpb.c); ++log_b)
         do
-          tmpb = cbafter (&b, bend, &mbsb);
+          tmpb = grafter (&b, bend, &mbsb);
         while (tmpb.c == thousands_sep && thousands_sep != WEOF);
 
       if (log_a != log_b)
@@ -867,8 +867,8 @@ wstrnumcmp (char const *a, char const *b,
 
 /**** CB/Wide version of memchr */
 
-cb *
-cbmemchr(cb *haystack, wchar_t needle, size_t n)
+grapheme *
+grmemchr(grapheme *haystack, wchar_t needle, size_t n)
 {
   for (size_t i = 0; i < n; i++) {
     if (haystack[i].c == needle) {

@@ -179,9 +179,9 @@ xputwchar (wchar_t c)
 /* Output a single character, reporting any write errors.  */
 
 static inline void
-xputcbyte (cb c)
+xputgrapheme (grapheme c)
 {
-  if (putcbyte (c).c == WEOF)
+  if (putgrapheme (c).c == WEOF)
     write_error ();
 }
 
@@ -248,13 +248,13 @@ paste_parallel (size_t nfiles, char **fnamptr)
 
       for (size_t i = 0; i < nfiles && files_open; i++)
         {
-          cb chr = { 0 };		/* Input character. */
+          grapheme chr = { 0 };		/* Input character. */
           int err IF_LINT ( = 0);	/* Input errno value.  */
           bool sometodo = false;	/* Input chars to process.  */
 
           if (fileptr[i])
             {
-              chr = fgetcb (fileptr[i], &mbs[i]);
+              chr = fgetgr (fileptr[i], &mbs[i]);
               err = errno;
               if (chr.c != WEOF && delims_saved)
                 {
@@ -268,8 +268,8 @@ paste_parallel (size_t nfiles, char **fnamptr)
                   sometodo = true;
                   if (chr.c == line_delim)
                     break;
-                  xputcbyte (chr);
-                  chr = fgetcb (fileptr[i], &mbs[i]);
+                  xputgrapheme (chr);
+                  chr = fgetgr (fileptr[i], &mbs[i]);
                   err = errno;
                 }
             }
@@ -332,7 +332,7 @@ paste_parallel (size_t nfiles, char **fnamptr)
               if (i + 1 != nfiles)
                 {
                   if (chr.c != line_delim && chr.c != WEOF)
-                    xputcbyte (chr);
+                    xputgrapheme (chr);
                   if (*delimptr != EMPTY_DELIM)
                     xputwchar (*delimptr);
                   if (++delimptr == delim_end)
@@ -346,7 +346,7 @@ paste_parallel (size_t nfiles, char **fnamptr)
                     chr.c = line_delim;
                     chr.isbyte = false;
                   }
-                  xputcbyte (chr);
+                  xputgrapheme (chr);
                 }
             }
         }
@@ -365,7 +365,7 @@ static bool
 paste_serial (size_t nfiles, char **fnamptr)
 {
   bool ok = true;	/* false if open or read errors occur. */
-  cb charnew, charold; /* Current and previous char read. */
+  grapheme charnew, charold; /* Current and previous char read. */
   wchar_t const *delimptr;	/* Current delimiter char. */
   FILE *fileptr;	/* Open for reading current file. */
 
@@ -393,7 +393,7 @@ paste_serial (size_t nfiles, char **fnamptr)
       mbstate_t mbs = { 0 };
       delimptr = delims;	/* Set up for delimiter string. */
 
-      charold = fgetcb (fileptr, &mbs);
+      charold = fgetgr (fileptr, &mbs);
       saved_errno = errno;
       if (charold.c != WEOF)
         {
@@ -403,7 +403,7 @@ paste_serial (size_t nfiles, char **fnamptr)
              character if needed.  After the EOF, output 'charold'
              if it's a newline; otherwise, output it and then a newline. */
 
-          while ((charnew = fgetcb (fileptr, &mbs)).c != WEOF)
+          while ((charnew = fgetgr (fileptr, &mbs)).c != WEOF)
             {
               /* Process the old character. */
               if (charold.c == line_delim)
@@ -415,14 +415,14 @@ paste_serial (size_t nfiles, char **fnamptr)
                     delimptr = delims;
                 }
               else
-                xputcbyte (charold);
+                xputgrapheme (charold);
 
               charold = charnew;
             }
           saved_errno = errno;
 
           /* Hit EOF.  Process that last character. */
-          xputcbyte (charold);
+          xputgrapheme (charold);
         }
 
       if (charold.c != line_delim)

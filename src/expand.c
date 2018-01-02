@@ -107,7 +107,7 @@ expand (void)
   while (true)
     {
       /* Input character, or EOF.  */
-      cb c;
+      grapheme c;
 
       /* If true, perform translations.  */
       bool convert = true;
@@ -129,7 +129,7 @@ expand (void)
 
       do
         {
-          while ((c = fgetcb (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
+          while ((c = fgetgr (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
             {
               mbstate_t nmbs = { 0 };
               mbs = nmbs;
@@ -180,7 +180,7 @@ expand (void)
           if (c.c == WEOF)
             return;
 
-          if (putcbyte (c).c == WEOF)
+          if (putgrapheme (c).c == WEOF)
             die (EXIT_FAILURE, errno, _("write error"));
         }
       while (c.c != L'\n');

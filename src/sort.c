@@ -1632,7 +1632,7 @@ begfield (struct line const *line, struct keyfield const *key)
   size_t sword = key->sword;
   size_t schar = key->schar;
   mbstate_t mbs = { 0 };
-  cb c;
+  grapheme c;
 
   /* The leading field separator itself is included in a field when -t
      is absent.  */
@@ -1640,12 +1640,12 @@ begfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && sword--)
       {
-        for (; (c = cbpeek(&ptr, lim, &mbs)).c != WEOF; c = cbnext(&ptr, lim, &mbs))
+        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
           {
             if (c.c == tab)
               {
                 // Skip over the tab
-                c = cbnext (&ptr, lim, &mbs);
+                c = grnext (&ptr, lim, &mbs);
                 break;
               }
           }
@@ -1655,13 +1655,13 @@ begfield (struct line const *line, struct keyfield const *key)
   else
     while (ptr < lim && sword--)
       {
-        for (; (c = cbpeek(&ptr, lim, &mbs)).c != WEOF; c = cbnext(&ptr, lim, &mbs))
+        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
           {
             if (!blanks (c.c))
               break;
           }
 
-        for (; (c = cbpeek(&ptr, lim, &mbs)).c != WEOF; c = cbnext(&ptr, lim, &mbs))
+        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
           {
             if (blanks (c.c))
               break;
@@ -1672,7 +1672,7 @@ begfield (struct line const *line, struct keyfield const *key)
      of the field, skip past them here.  */
   if (key->skipsblanks)
     {
-      for (; (c = cbpeek (&ptr, lim, &mbs)).c != WEOF; c = cbnext(&ptr, lim, &mbs))
+      for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
         {
           if (!blanks (c.c))
             break;
@@ -1682,7 +1682,7 @@ begfield (struct line const *line, struct keyfield const *key)
   /* Advance PTR by SCHAR (if possible), but no further than LIM.  */
   for (size_t i = 0; i < schar; i++)
     {
-      if ((c = cbnext (&ptr, lim, &mbs)).c == WEOF)
+      if ((c = grnext (&ptr, lim, &mbs)).c == WEOF)
         break;
     }
 
@@ -1702,7 +1702,7 @@ limfield (struct line const *line, struct keyfield const *key)
   const char *ptr = line->text, *lim = ptr + line->length - 1;
   size_t eword = key->eword, echar = key->echar;
   mbstate_t mbs = { 0 };
-  cb c;
+  grapheme c;
 
   if (echar == 0)
     eword++; /* Skip all of end field.  */
@@ -1717,7 +1717,7 @@ limfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && eword--)
       {
-        for (; (c = cbpeek (&ptr, lim, &mbs)).c != WEOF; c = cbnext (&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
           {
             if (c.c == tab)
               break;
@@ -1725,19 +1725,19 @@ limfield (struct line const *line, struct keyfield const *key)
 
         if (ptr < lim && (eword || echar))
           {
-            c = cbnext (&ptr, lim, &mbs);
+            c = grnext (&ptr, lim, &mbs);
           }
       }
   else
     while (ptr < lim && eword--)
       {
-        for (; (c = cbpeek (&ptr, lim, &mbs)).c != WEOF; c = cbnext (&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
           {
             if (!blanks (c.c))
               break;
           }
 
-        for (; (c = cbpeek (&ptr, lim, &mbs)).c != WEOF; c = cbnext (&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
           {
             if (blanks (c.c))
               break;
@@ -1803,7 +1803,7 @@ limfield (struct line const *line, struct keyfield const *key)
          of the field, skip past them here.  */
       if (key->skipeblanks)
         {
-          for (; (c = cbpeek (&ptr, lim, &mbs)).c != WEOF; c = cbnext (&ptr, lim, &mbs))
+          for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
             {
               if (!blanks (c.c))
                 break;
@@ -1813,7 +1813,7 @@ limfield (struct line const *line, struct keyfield const *key)
       /* Advance PTR by ECHAR (if possible), but no further than LIM.  */
       for (size_t i = 0; i < echar; i++)
         {
-          if ((c = cbnext (&ptr, lim, &mbs)).c == WEOF)
+          if ((c = grnext (&ptr, lim, &mbs)).c == WEOF)
             break;
         }
     }
@@ -1915,9 +1915,9 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
                         {
                           const char *line_end = line_start + line->length;
                           mbstate_t mbs = { 0 };
-                          cb c;
+                          grapheme c;
 
-                          for (; (c = cbpeek (&line_start, line_end, &mbs)).c != WEOF; c = cbnext (&line_start, line_end, &mbs))
+                          for (; (c = grpeek (&line_start, line_end, &mbs)).c != WEOF; c = grnext (&line_start, line_end, &mbs))
                             {
                               if (!blanks (c.c))
                                 break;
@@ -2005,7 +2005,7 @@ traverse_raw_number (char const **number)
      Numbers ending in decimals or separators are thus considered
      to be lacking in units. */
 
-  cb ch;
+  grapheme ch;
   mbstate_t mbs = { 0 };
 
   // Two characters back from the current end
@@ -2018,7 +2018,7 @@ traverse_raw_number (char const **number)
 
   while (true)
     {
-      ch = cbpeek (&p, pend, &mbs);
+      ch = grpeek (&p, pend, &mbs);
       if (ch.c == WEOF)
         break;
       if (!isdigit (ch.c))
@@ -2027,7 +2027,7 @@ traverse_raw_number (char const **number)
 
           p2 = p1, p1 = p;
           mbs2 = mbs1, mbs1 = mbs;
-          ch = cbnext (&p, pend, &mbs);
+          ch = grnext (&p, pend, &mbs);
           break;
         }
 
@@ -2046,12 +2046,12 @@ traverse_raw_number (char const **number)
         {
           p2 = p1, p1 = p;
           mbs2 = mbs1, mbs1 = mbs;
-          ch = cbnext (&p, pend, &mbs);
+          ch = grnext (&p, pend, &mbs);
         }
 
       p2 = p1, p1 = p;
       mbs2 = mbs1, mbs1 = mbs;
-      ch = cbnext (&p, pend, &mbs);
+      ch = grnext (&p, pend, &mbs);
     }
 
   if (ends_with_thousands_sep)
@@ -2065,7 +2065,7 @@ traverse_raw_number (char const **number)
     {
       while (true)
         {
-          ch = cbpeek (&p, pend, &mbs);
+          ch = grpeek (&p, pend, &mbs);
           if (ch.c == WEOF)
             break;
 
@@ -2075,7 +2075,7 @@ traverse_raw_number (char const **number)
 
               p2 = p1, p1 = p;
               mbs2 = mbs1, mbs1 = mbs;
-              ch = cbnext (&p, pend, &mbs);
+              ch = grnext (&p, pend, &mbs);
 
               break;
             }
@@ -2117,11 +2117,11 @@ static int
 human_numcompare (char const *a, char const *b)
 {
   int bytes;
-  cb c;
+  grapheme c;
 
   mbstate_t mbsa = { 0 };
   const char *aend = a + strlen(a);
-  for (; (c = cbpeek (&a, aend, &mbsa)).c != WEOF; c = cbnext (&a, aend, &mbsa))
+  for (; (c = grpeek (&a, aend, &mbsa)).c != WEOF; c = grnext (&a, aend, &mbsa))
     {
       if (!blanks(c.c))
         break;
@@ -2129,7 +2129,7 @@ human_numcompare (char const *a, char const *b)
 
   mbstate_t mbsb = { 0 };
   const char *bend = b + strlen(b);
-  for (; (c = cbpeek (&b, bend, &mbsb)).c != WEOF; c = cbnext (&b, bend, &mbsb))
+  for (; (c = grpeek (&b, bend, &mbsb)).c != WEOF; c = grnext (&b, bend, &mbsb))
     {
       if (!blanks(c.c))
         break;
@@ -2147,11 +2147,11 @@ static int
 numcompare (char const *a, char const *b)
 {
   int bytes;
-  cb c;
+  grapheme c;
 
   mbstate_t mbsa = { 0 };
   const char *aend = a + strlen(a);
-  for (; (c = cbpeek (&a, aend, &mbsa)).c != WEOF; c = cbnext (&a, aend, &mbsa))
+  for (; (c = grpeek (&a, aend, &mbsa)).c != WEOF; c = grnext (&a, aend, &mbsa))
     {
       if (!blanks (c.c))
         break;
@@ -2159,7 +2159,7 @@ numcompare (char const *a, char const *b)
 
   mbstate_t mbsb = { 0 };
   const char *bend = b + strlen(b);
-  for (; (c = cbpeek (&b, bend, &mbsb)).c != WEOF; c = cbnext (&b, bend, &mbsb))
+  for (; (c = grpeek (&b, bend, &mbsb)).c != WEOF; c = grnext (&b, bend, &mbsb))
     {
       if (!blanks (c.c))
         break;
@@ -2224,9 +2224,9 @@ getmonth (char const *month, char **ea)
   size_t hi = MONTHS_PER_YEAR;
   char const *mend = month + strlen(month);
   mbstate_t mbs = { 0 };
-  cb c;
+  grapheme c;
 
-  for (; (c = cbpeek (&month, mend, &mbs)).c != WEOF; c = cbnext (&month, mend, &mbs))
+  for (; (c = grpeek (&month, mend, &mbs)).c != WEOF; c = grnext (&month, mend, &mbs))
     {
       if (!blanks(c.c))
         break;
@@ -2241,8 +2241,8 @@ getmonth (char const *month, char **ea)
 
       while (true)
         {
-          cb mc;
-          mc = cbpeek (&m, mend, &mbs);
+          grapheme mc;
+          mc = grpeek (&m, mend, &mbs);
           if (mc.c == WEOF)
             {
               mc.c = L'\0';
@@ -2266,7 +2266,7 @@ getmonth (char const *month, char **ea)
               break;
             }
 
-          mc = cbnext (&m, mend, &mbs);
+          mc = grnext (&m, mend, &mbs);
         }
     }
   while (lo < hi);
@@ -2511,10 +2511,10 @@ debug_key (struct line const *line, struct keyfield const *key)
           char saved = *lim;
           *lim = '\0';
 
-          cb c;
+          grapheme c;
           mbstate_t mbs = { 0 };
 
-          for (; (c = cbpeek (&beg, lim, &mbs)).c != WEOF; c = cbnext (&beg, lim, &mbs))
+          for (; (c = grpeek (&beg, lim, &mbs)).c != WEOF; c = grnext (&beg, lim, &mbs))
             {
               if (!blanks(c.c))
                 break;
@@ -2728,20 +2728,20 @@ xtrymemcoll0 (char const *s1, size_t s1size, char const *s2, size_t s2size)
 
   // Must contain bytes that the locale doesn't support, so decompose it.
 
-  cb tmp1[s1size];
-  cb tmp2[s2size];
+  grapheme tmp1[s1size];
+  grapheme tmp2[s2size];
   const char *s1end = s1 + s1size;
   const char *s2end = s2 + s2size;
   mbstate_t mbs1 = { 0 }, mbs2 = { 0 };
   size_t len1 = 0, len2 = 0;
 
-  cb c;
-  while ((c = cbnext(&s1, s1end, &mbs1)).c != WEOF)
+  grapheme c;
+  while ((c = grnext(&s1, s1end, &mbs1)).c != WEOF)
     tmp1[len1++] = c;
-  while ((c = cbnext(&s2, s2end, &mbs2)).c != WEOF)
+  while ((c = grnext(&s2, s2end, &mbs2)).c != WEOF)
     tmp2[len2++] = c;
 
-  return xcbmemcoll(tmp1, len1, tmp2, len2);
+  return xgrmemcoll(tmp1, len1, tmp2, len2);
 }
 
 /* Compare two lines A and B trying every key in sequence until there
@@ -2811,7 +2811,7 @@ keycompare (struct line const *a, struct line const *b)
               /* Put into each copy a version of the key in which the
                  requested characters are ignored or translated.  */
 
-              cb c;
+              grapheme c;
               const char *in, *end;
               char *out;
               mbstate_t mbsa = { 0 }, mbsb = { 0 };
@@ -2823,7 +2823,7 @@ keycompare (struct line const *a, struct line const *b)
 
               while (true)
                 {
-                  c = cbnext (&in, end, &mbsa);
+                  c = grnext (&in, end, &mbsa);
                   if (c.c == WEOF)
                     break;
 
@@ -2854,7 +2854,7 @@ keycompare (struct line const *a, struct line const *b)
 
               while (true)
                 {
-                  c = cbnext (&in, end, &mbsb);
+                  c = grnext (&in, end, &mbsb);
                   if (c.c == WEOF)
                     break;
 
@@ -2924,15 +2924,15 @@ keycompare (struct line const *a, struct line const *b)
           while (true)
             {
               mbstate_t mbsa = { 0 }, mbsb = { 0 };
-              cb ca, cb;
+              grapheme ca, cb;
 
-              for (; (ca = cbpeek (&texta, lima, &mbsa)).c != WEOF; ca = cbnext (&texta, lima, &mbsa))
+              for (; (ca = grpeek (&texta, lima, &mbsa)).c != WEOF; ca = grnext (&texta, lima, &mbsa))
                 {
                   if (!ignore(ca.c))
                     break;
                 }
 
-              for (; (cb = cbpeek (&textb, limb, &mbsb)).c != WEOF; cb = cbnext (&textb, limb, &mbsb))
+              for (; (cb = grpeek (&textb, limb, &mbsb)).c != WEOF; cb = grnext (&textb, limb, &mbsb))
                 {
                   if (!ignore(cb.c))
                     break;
@@ -2956,8 +2956,8 @@ keycompare (struct line const *a, struct line const *b)
               if (diff)
                 goto not_equal;
 
-              ca = cbnext (&texta, lima, &mbsa);
-              cb = cbnext (&textb, limb, &mbsb);
+              ca = grnext (&texta, lima, &mbsa);
+              cb = grnext (&textb, limb, &mbsb);
             }
 
             diff = (texta < lima) - (textb < limb);
@@ -2971,12 +2971,12 @@ keycompare (struct line const *a, struct line const *b)
           if (translate)
             {
               mbstate_t mbsa = { 0 }, mbsb = { 0 };
-              cb ca, cb;
+              grapheme ca, cb;
 
               while (texta < lima && textb < limb)
                 {
-                  ca = cbpeek (&texta, lima, &mbsa);
-                  cb = cbpeek (&textb, limb, &mbsb);
+                  ca = grpeek (&texta, lima, &mbsa);
+                  cb = grpeek (&textb, limb, &mbsb);
 
                   wchar_t outa = translate (ca.c);
                   wchar_t outb = translate (cb.c);
@@ -2990,8 +2990,8 @@ keycompare (struct line const *a, struct line const *b)
                   if (diff)
                     goto not_equal;
 
-                  ca = cbnext (&texta, lima, &mbsa);
-                  cb = cbnext (&textb, limb, &mbsb);
+                  ca = grnext (&texta, lima, &mbsa);
+                  cb = grnext (&textb, limb, &mbsb);
                 }
             }
           else
@@ -3025,16 +3025,16 @@ keycompare (struct line const *a, struct line const *b)
           texta = a->text, textb = b->text;
           if (key->skipsblanks)
             {
-              cb c;
+              grapheme c;
               mbstate_t mbsa = { 0 }, mbsb = { 0 };
 
-              for (; (c = cbpeek (&texta, lima, &mbsa)).c != WEOF; c = cbnext (&texta, lima, &mbsa))
+              for (; (c = grpeek (&texta, lima, &mbsa)).c != WEOF; c = grnext (&texta, lima, &mbsa))
                 {
                   if (!blanks(c.c))
                     break;
                 }
 
-              for (; (c = cbpeek (&textb, limb, &mbsb)).c != WEOF; c = cbnext (&textb, limb, &mbsb))
+              for (; (c = grpeek (&textb, limb, &mbsb)).c != WEOF; c = grnext (&textb, limb, &mbsb))
                 {
                   if (!blanks(c.c))
                     break;
@@ -4571,7 +4571,7 @@ main (int argc, char **argv)
     if (d != NULL)
       {
         mbstate_t ds = { 0 };
-        cb c = cbnext (&d, d + strlen(d), &ds);
+        grapheme c = grnext (&d, d + strlen(d), &ds);
         if (c.c != WEOF)
           decimal_point = c.c;
       }
@@ -4580,7 +4580,7 @@ main (int argc, char **argv)
     if (t != NULL)
       {
         mbstate_t ts = { 0 };
-        cb c = cbnext (&t, t + strlen(t), &ts);
+        grapheme c = grnext (&t, t + strlen(t), &ts);
         if (c.c != EOF)
           thousands_sep = c.c;
       }
@@ -4867,7 +4867,7 @@ main (int argc, char **argv)
               {
                 mbstate_t mbs = { 0 };
                 const char *s = optarg;
-                cb c = cbnext (&s, s + strlen(s), &mbs);
+                grapheme c = grnext (&s, s + strlen(s), &mbs);
                 if (c.c == WEOF)
                   die (SORT_FAILURE, 0, _("empty tab"));
                 if (*s != '\0')

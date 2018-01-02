@@ -73,7 +73,7 @@ static struct field_range_pair *current_rp;
    is followed by a delimiter or a newline before any of it may be
    output.  Otherwise, cut_fields can do the job without using this
    buffer.  */
-static cb *field_1_buffer;
+static grapheme *field_1_buffer;
 
 /* The number of bytes allocated for FIELD_1_BUFFER.  */
 static size_t field_1_bufsize;
@@ -309,13 +309,13 @@ cut_characters (FILE *stream)
 
   while (true)
     {
-      cb c;		/* Each character from the file. */
+      grapheme c;		/* Each character from the file. */
 
-      c = fgetcb (stream, &mbs);
+      c = fgetgr (stream, &mbs);
 
       if (c.c == line_delim_wchar)
         {
-          putcbyte (c);
+          putgrapheme (c);
           character_idx = 0;
           print_delimiter = false;
           current_rp = frp;
@@ -341,7 +341,7 @@ cut_characters (FILE *stream)
                   print_delimiter = true;
                 }
 
-              putcbyte (c);
+              putgrapheme (c);
             }
         }
     }
@@ -352,7 +352,7 @@ cut_characters (FILE *stream)
 static void
 cut_fields (FILE *stream)
 {
-  cb c;
+  grapheme c;
   size_t field_idx = 1;
   bool found_any_selected_field = false;
   bool buffer_first_field;
@@ -360,7 +360,7 @@ cut_fields (FILE *stream)
 
   current_rp = frp;
 
-  c = fpeekcb (stream, &mbs);
+  c = fpeekgr (stream, &mbs);
   if (c.c == WEOF)
     return;
 
@@ -381,7 +381,7 @@ cut_fields (FILE *stream)
           ssize_t len;
           size_t n_bytes;
 
-          len = cbgetndelim2 (&field_1_buffer, &field_1_bufsize, 0,
+          len = grgetndelim2 (&field_1_buffer, &field_1_bufsize, 0,
                             GETNLINE_NO_LIMIT, delim, line_delim_wchar, stream, &mbs);
           if (len < 0)
             {
@@ -409,7 +409,7 @@ cut_fields (FILE *stream)
               else
                 {
                   for (size_t i = 0; i < n_bytes; i++)
-                    putcbyte (field_1_buffer[i]);
+                    putgrapheme (field_1_buffer[i]);
                   /* Make sure the output line is newline terminated.  */
                   if (field_1_buffer[n_bytes - 1].c != line_delim_wchar)
                     putwchar (line_delim_wchar);
@@ -422,12 +422,12 @@ cut_fields (FILE *stream)
             {
               /* Print the field, but not the trailing delimiter.  */
               for (size_t i = 0; i < n_bytes - 1; i++)
-                putcbyte (field_1_buffer[i]);
+                putgrapheme (field_1_buffer[i]);
 
               /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
               if (delim == line_delim_wchar)
                 {
-                  cb last_c = fpeekcb (stream, &mbs);
+                  grapheme last_c = fpeekgr (stream, &mbs);
                   if (last_c.c != WEOF)
                     {
                       found_any_selected_field = true;
@@ -439,7 +439,7 @@ cut_fields (FILE *stream)
           next_item (&field_idx);
         }
 
-      cb prev_c = c;
+      grapheme prev_c = c;
 
       if (print_kth (field_idx))
         {
@@ -450,15 +450,15 @@ cut_fields (FILE *stream)
             }
           found_any_selected_field = true;
 
-          while ((c = fgetcb (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
             {
-              putcbyte (c);
+              putgrapheme (c);
               prev_c = c;
             }
         }
       else
         {
-          while ((c = fgetcb (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
             {
               prev_c = c;
             }
@@ -467,7 +467,7 @@ cut_fields (FILE *stream)
       /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
       if (delim == line_delim_wchar && c.c == delim)
         {
-          cb last_c = fpeekcb (stream, &mbs);
+          grapheme last_c = fpeekgr (stream, &mbs);
           if (last_c.c == WEOF)
             c = last_c;
         }

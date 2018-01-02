@@ -245,7 +245,7 @@ static bool truncate_set1 = false;
    It is set in main and used there and in validate().  */
 static bool translating;
 
-static cb io_buf[BUFSIZ];
+static grapheme io_buf[BUFSIZ];
 
 static wchar_t const *const char_class_name[] =
 {
@@ -1541,14 +1541,14 @@ validate (struct Spec_list *s1, struct Spec_list *s2)
 }
 
 size_t
-cbfwrite (cb *buf, size_t n, FILE *f)
+cbfwrite (grapheme *buf, size_t n, FILE *f)
 {
   size_t wrote = 0;
   size_t i;
 
   for (i = 0; i < n; i++)
     {
-      if (putcbyte(buf[i]).c == WEOF)
+      if (putgrapheme(buf[i]).c == WEOF)
         {
           break;
         }
@@ -1567,7 +1567,7 @@ cbfwrite (cb *buf, size_t n, FILE *f)
    character is in the squeeze set.  */
 
 static void
-squeeze_filter (cb *buf, size_t size, mbstate_t *mbs, size_t (*reader) (cb *, size_t, mbstate_t *))
+squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *))
 {
   /* A value distinct from any character that may have been stored in a
      buffer as the result of a block-read in the function squeeze_filter.  */
@@ -1652,12 +1652,12 @@ squeeze_filter (cb *buf, size_t size, mbstate_t *mbs, size_t (*reader) (cb *, si
 }
 
 static size_t
-plain_read (cb *buf, size_t size, mbstate_t *mbs)
+plain_read (grapheme *buf, size_t size, mbstate_t *mbs)
 {
   size_t n = 0;
   while (n < size)
     {
-      cb c = getcbyte(mbs);
+      grapheme c = getgrapheme(mbs);
       if (c.c == WEOF)
         {
           if (ferror(stdin))
@@ -1678,7 +1678,7 @@ plain_read (cb *buf, size_t size, mbstate_t *mbs)
    or 0 upon EOF.  */
 
 static size_t
-read_and_delete (cb *buf, size_t size, mbstate_t *mbs)
+read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs)
 {
   size_t n_saved;
 
@@ -1716,7 +1716,7 @@ read_and_delete (cb *buf, size_t size, mbstate_t *mbs)
    array 'xlate'.  Return the number of characters read, or 0 upon EOF.  */
 
 static size_t
-read_and_xlate (cb *buf, size_t size, mbstate_t *mbs)
+read_and_xlate (grapheme *buf, size_t size, mbstate_t *mbs)
 {
   size_t bytes_read = plain_read (buf, size, mbs);
 

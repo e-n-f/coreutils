@@ -49,7 +49,7 @@
 #define SWAP_LINES(A, B)			\
   do						\
     {						\
-      struct cblinebuffer *_tmp;			\
+      struct grlinebuffer *_tmp;			\
       _tmp = (A);				\
       (A) = (B);				\
       (B) = _tmp;				\
@@ -263,11 +263,11 @@ size_opt (char const *opt, char const *msgid)
 /* Given a linebuffer LINE,
    return a pointer to the beginning of the line's field to be compared. */
 
-static cb * _GL_ATTRIBUTE_PURE
-find_field (struct cblinebuffer const *line)
+static grapheme * _GL_ATTRIBUTE_PURE
+find_field (struct grlinebuffer const *line)
 {
   size_t count;
-  cb const *lp = line->buffer;
+  grapheme const *lp = line->buffer;
   size_t size = line->length - 1;
   size_t i = 0;
 
@@ -290,16 +290,16 @@ find_field (struct cblinebuffer const *line)
    OLDLEN and NEWLEN are their lengths. */
 
 static bool
-different (cb *old, cb *new, size_t oldlen, size_t newlen)
+different (grapheme *old, grapheme *new, size_t oldlen, size_t newlen)
 {
   if (check_chars < oldlen)
     oldlen = check_chars;
   if (check_chars < newlen)
     newlen = check_chars;
 
-  cb tmp1[oldlen], tmp2[newlen];
-  memcpy(tmp1, old, oldlen * sizeof(cb));
-  memcpy(tmp2, new, newlen * sizeof(cb));
+  grapheme tmp1[oldlen], tmp2[newlen];
+  memcpy(tmp1, old, oldlen * sizeof(grapheme));
+  memcpy(tmp2, new, newlen * sizeof(grapheme));
 
   if (ignore_case)
     {
@@ -319,8 +319,8 @@ different (cb *old, cb *new, size_t oldlen, size_t newlen)
      }
 
   if (hard_LC_COLLATE)
-    return xcbmemcoll (tmp1, oldlen, tmp2, newlen) != 0;
-  return oldlen != newlen || memcmp (tmp1, tmp2, oldlen * sizeof(cb));
+    return xgrmemcoll (tmp1, oldlen, tmp2, newlen) != 0;
+  return oldlen != newlen || memcmp (tmp1, tmp2, oldlen * sizeof(grapheme));
 }
 
 /* Output the line in linebuffer LINE to standard output
@@ -330,7 +330,7 @@ different (cb *old, cb *new, size_t oldlen, size_t newlen)
    LINECOUNT + 1 is the number of times that the line occurred. */
 
 static void
-writeline (struct cblinebuffer const *line,
+writeline (struct grlinebuffer const *line,
            bool match, uintmax_t linecount)
 {
   if (! (linecount == 0 ? output_unique
@@ -342,7 +342,7 @@ writeline (struct cblinebuffer const *line,
     printf ("%7" PRIuMAX " ", linecount + 1);
 
   for (size_t i = 0; i < line->length; i++)
-    putcbyte (line->buffer[i]);
+    putgrapheme (line->buffer[i]);
 }
 
 /* Process input file INFILE with output to OUTFILE.
@@ -351,8 +351,8 @@ writeline (struct cblinebuffer const *line,
 static void
 check_file (const char *infile, const char *outfile, wchar_t delimiter)
 {
-  struct cblinebuffer lb1, lb2;
-  struct cblinebuffer *thisline, *prevline;
+  struct grlinebuffer lb1, lb2;
+  struct grlinebuffer *thisline, *prevline;
   mbstate_t mbs = { 0 };
 
   if (! (STREQ (infile, "-") || freopen (infile, "r", stdin)))
@@ -365,8 +365,8 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
   thisline = &lb1;
   prevline = &lb2;
 
-  initcbbuffer (thisline);
-  initcbbuffer (prevline);
+  initgrbuffer (thisline);
+  initgrbuffer (prevline);
 
   /* The duplication in the following 'if' and 'else' blocks is an
      optimization to distinguish between when we can print input
@@ -385,17 +385,17 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
   */
   if (output_unique && output_first_repeated && countmode == count_none)
     {
-      cb *prevfield IF_LINT ( = NULL);
+      grapheme *prevfield IF_LINT ( = NULL);
       size_t prevlen IF_LINT ( = 0);
       bool first_group_printed = false;
 
       while (!feof (stdin))
         {
-          cb *thisfield;
+          grapheme *thisfield;
           size_t thislen;
           bool new_group;
 
-          if (readcblinebuffer_delim (thisline, stdin, delimiter, &mbs) == 0)
+          if (readgrlinebuffer_delim (thisline, stdin, delimiter, &mbs) == 0)
             break;
 
           thisfield = find_field (thisline);
@@ -413,7 +413,7 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
           if (new_group || grouping != GM_NONE)
             {
               for (size_t i = 0; i < thisline->length; i++)
-                putcbyte (thisline->buffer[i]);
+                putgrapheme (thisline->buffer[i]);
 
               SWAP_LINES (prevline, thisline);
               prevfield = thisfield;
@@ -426,12 +426,12 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
     }
   else
     {
-      cb *prevfield;
+      grapheme *prevfield;
       size_t prevlen;
       uintmax_t match_count = 0;
       bool first_delimiter = true;
 
-      if (readcblinebuffer_delim (prevline, stdin, delimiter, &mbs) == 0)
+      if (readgrlinebuffer_delim (prevline, stdin, delimiter, &mbs) == 0)
         goto closefiles;
       prevfield = find_field (prevline);
       prevlen = prevline->length - 1 - (prevfield - prevline->buffer);
@@ -439,9 +439,9 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
       while (!feof (stdin))
         {
           bool match;
-          cb *thisfield;
+          grapheme *thisfield;
           size_t thislen;
-          if (readcblinebuffer_delim (thisline, stdin, delimiter, &mbs) == 0)
+          if (readgrlinebuffer_delim (thisline, stdin, delimiter, &mbs) == 0)
             {
               if (ferror (stdin))
                 goto closefiles;

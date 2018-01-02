@@ -113,7 +113,7 @@ unexpand (void)
   /* The array of pending blanks.  In non-POSIX locales, blanks can
      include characters other than spaces, so the blanks must be
      stored, not merely counted.  */
-  cb *pending_blank;
+  grapheme *pending_blank;
   size_t pending_blank_size;
 
   if (!fp)
@@ -122,13 +122,13 @@ unexpand (void)
   /* The worst case is a non-blank character, then one blank, then a
      tab stop, then MAX_COLUMN_WIDTH - 1 blanks, then a non-blank; so
      allocate MAX_COLUMN_WIDTH bytes to store the blanks.  */
-  pending_blank = xmalloc (max_column_width * sizeof(cb));
+  pending_blank = xmalloc (max_column_width * sizeof(grapheme));
   pending_blank_size = max_column_width;
 
   while (true)
     {
       /* Input character, or EOF.  */
-      cb c;
+      grapheme c;
 
       /* If true, perform translations.  */
       bool convert = true;
@@ -163,7 +163,7 @@ unexpand (void)
 
       do
         {
-          while ((c = fgetcb (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
+          while ((c = fgetgr (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
             {
               mbstate_t nmbs = { 0 };
               mbs = nmbs;
@@ -195,7 +195,7 @@ unexpand (void)
 
                           if (pending)
                             {
-                              cb tab;
+                              grapheme tab;
                               tab.c = L'\t';
                               tab.isbyte = false;
                               pending_blank[0] = tab;
@@ -216,7 +216,7 @@ unexpand (void)
                               if (pending >= pending_blank_size)
                                 {
                                   pending_blank_size *= 2;
-                                  xrealloc (pending_blank, pending_blank_size * sizeof(cb));
+                                  xrealloc (pending_blank, pending_blank_size * sizeof(grapheme));
                                 }
                               pending_blank[pending++] = c;
                               prev_blank = true;
@@ -224,7 +224,7 @@ unexpand (void)
                             }
 
                           /* Replace the pending blanks by a tab or two.  */
-                          cb tab;
+                          grapheme tab;
                           tab.c = L'\t';
                           tab.isbyte = false;
                           pending_blank[0] = c = tab;
@@ -255,14 +255,14 @@ unexpand (void)
                 {
                   if (pending > 1 && one_blank_before_tab_stop)
                     {
-                      cb tab;
+                      grapheme tab;
                       tab.c = L'\t';
                       tab.isbyte = false;
                       pending_blank[0] = tab;
                     }
                   for (size_t i = 0; i < pending; i++)
                     {
-                      if (putcbyte(pending_blank[i]).c == WEOF)
+                      if (putgrapheme(pending_blank[i]).c == WEOF)
                         die (EXIT_FAILURE, errno, _("write error"));
                     }
                   pending = 0;
@@ -279,7 +279,7 @@ unexpand (void)
               return;
             }
 
-          if (putcbyte (c).c == WEOF)
+          if (putgrapheme (c).c == WEOF)
             die (EXIT_FAILURE, errno, _("write error"));
         }
       while (c.c != L'\n');
