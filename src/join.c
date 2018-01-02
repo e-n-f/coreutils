@@ -279,13 +279,13 @@ xfields (struct line *line)
   if (ptr == lim)
     return;
 
-  if (0 <= tab && tab != '\n')
+  if (tab != WEOF && tab != '\n')
     {
       grapheme *sep;
       for (; (sep = grmemchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
         extract_field (line, ptr, sep - ptr);
     }
-  else if (tab < 0)
+  else if (tab == WEOF)
     {
       /* Skip leading blanks before the first field.  */
       while (wfield_sep (ptr->c))
@@ -588,7 +588,7 @@ prfields (struct line const *line, size_t join_field, size_t autocount)
 {
   size_t i;
   size_t nfields = autoformat ? autocount : line->nfields;
-  wchar_t output_separator = tab < 0 ? L' ' : tab;
+  wchar_t output_separator = tab == WEOF ? L' ' : tab;
 
   for (i = 0; i < join_field && i < nfields; ++i)
     {
@@ -608,7 +608,7 @@ static void
 prjoin (struct line const *line1, struct line const *line2)
 {
   const struct outlist *outlist;
-  wint_t output_separator = tab < 0 ? L' ' : tab;
+  wint_t output_separator = tab == WEOF ? L' ' : tab;
   size_t field;
   struct line const *line;
 
@@ -1137,7 +1137,7 @@ main (int argc, char **argv)
                            quote (optarg));
                   }
               }
-            if (0 <= tab && tab != newtab)
+            if (tab != WEOF && tab != newtab)
               die (EXIT_FAILURE, 0, _("incompatible tabs"));
             tab = newtab;
           }
