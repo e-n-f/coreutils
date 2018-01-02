@@ -1326,9 +1326,9 @@ inittables (void)
             error (0, errno, _("invalid month name %s"), s);
 
           size_t out = 0;
-          for (size_t i = 0; tmp[i] != L'\0'; i++)
-            if (! iswblank (tmp[i]))
-              tmp[out++] = towupper (tmp[i]);
+          for (size_t j = 0; tmp[j] != L'\0'; j++)
+            if (! iswblank (tmp[j]))
+              tmp[out++] = towupper (tmp[j]);
           tmp[out] = L'\0';
 
           monthtab[i].name = xwcsdup(tmp);
@@ -2010,11 +2010,9 @@ traverse_raw_number (char const **number)
 
   // Two characters back from the current end
   const char *p2 = p;
-  mbstate_t mbs2 = mbs;
 
   // One character back from the current end
   const char *p1 = p;
-  mbstate_t mbs1 = mbs;
 
   while (true)
     {
@@ -2026,7 +2024,6 @@ traverse_raw_number (char const **number)
           // still advances past the non-digit
 
           p2 = p1, p1 = p;
-          mbs2 = mbs1, mbs1 = mbs;
           ch = grnext (&p, pend, &mbs);
           break;
         }
@@ -2045,12 +2042,10 @@ traverse_raw_number (char const **number)
       if (ends_with_thousands_sep)
         {
           p2 = p1, p1 = p;
-          mbs2 = mbs1, mbs1 = mbs;
           ch = grnext (&p, pend, &mbs);
         }
 
       p2 = p1, p1 = p;
-      mbs2 = mbs1, mbs1 = mbs;
       ch = grnext (&p, pend, &mbs);
     }
 
@@ -2074,7 +2069,6 @@ traverse_raw_number (char const **number)
               // still advances past the non-digit
 
               p2 = p1, p1 = p;
-              mbs2 = mbs1, mbs1 = mbs;
               ch = grnext (&p, pend, &mbs);
 
               break;
@@ -2116,7 +2110,6 @@ find_unit_order (char const *number)
 static int
 human_numcompare (char const *a, char const *b)
 {
-  int bytes;
   grapheme c;
 
   mbstate_t mbsa = { 0 };
@@ -2146,7 +2139,6 @@ human_numcompare (char const *a, char const *b)
 static int
 numcompare (char const *a, char const *b)
 {
-  int bytes;
   grapheme c;
 
   mbstate_t mbsa = { 0 };
@@ -2236,7 +2228,6 @@ getmonth (char const *month, char **ea)
     {
       size_t ix = (lo + hi) / 2;
       char const *m = month;
-      mbstate_t mbs2 = mbs;
       wchar_t const *n = monthtab[ix].name;
 
       while (true)
@@ -2718,7 +2709,7 @@ key_warnings (struct keyfield const *gkey, bool gkey_only)
     error (0, 0, _("option '-r' only applies to last-resort comparison"));
 }
 
-int
+static int
 xtrymemcoll0 (char const *s1, size_t s1size, char const *s2, size_t s2size)
 {
   errno = 0;
@@ -2793,8 +2784,6 @@ keycompare (struct line const *a, struct line const *b)
                  translating or ignoring characters, and which need their
                  own storage.  */
 
-              size_t i;
-
               /* Allocate space for copies.  */
 
               // Very conservatively: Each multibyte character can yield at most
@@ -2832,9 +2821,9 @@ keycompare (struct line const *a, struct line const *b)
 
                   if (translate)
                     {
-                      wchar_t out = translate(c.c);
-                      if (!c.isbyte || out <= UCHAR_MAX)
-                        c.c = out;
+                      wchar_t translated = translate(c.c);
+                      if (!c.isbyte || translated <= UCHAR_MAX)
+                        c.c = translated;
                     }
 
                   // TODO: Does this need to track bytes vs characters?
@@ -2863,9 +2852,9 @@ keycompare (struct line const *a, struct line const *b)
 
                   if (translate)
                     {
-                      wchar_t out = translate(c.c);
-                      if (!c.isbyte || out <= UCHAR_MAX)
-                        c.c = out;
+                      wchar_t translated = translate(c.c);
+                      if (!c.isbyte || translated <= UCHAR_MAX)
+                        c.c = translated;
                     }
 
                   // TODO: Does this need to track bytes vs characters?
@@ -4571,18 +4560,18 @@ main (int argc, char **argv)
     if (d != NULL)
       {
         mbstate_t ds = { 0 };
-        grapheme c = grnext (&d, d + strlen(d), &ds);
-        if (c.c != WEOF)
-          decimal_point = c.c;
+        grapheme dc = grnext (&d, d + strlen(d), &ds);
+        if (dc.c != WEOF)
+          decimal_point = dc.c;
       }
 
     const char *t = locale->thousands_sep;
     if (t != NULL)
       {
         mbstate_t ts = { 0 };
-        grapheme c = grnext (&t, t + strlen(t), &ts);
-        if (c.c != EOF)
-          thousands_sep = c.c;
+        grapheme tc = grnext (&t, t + strlen(t), &ts);
+        if (tc.c != EOF)
+          thousands_sep = tc.c;
       }
   }
 
@@ -4866,18 +4855,18 @@ main (int argc, char **argv)
             else
               {
                 mbstate_t mbs = { 0 };
-                const char *s = optarg;
-                grapheme c = grnext (&s, s + strlen(s), &mbs);
-                if (c.c == WEOF)
+                const char *arg = optarg;
+                grapheme g = grnext (&arg, arg + strlen(arg), &mbs);
+                if (g.c == WEOF)
                   die (SORT_FAILURE, 0, _("empty tab"));
-                if (*s != '\0')
+                if (*arg != '\0')
                   /* Provoke with 'sort -txx'.  Complain about
                      "multi-character tab" instead of "multibyte tab", so
                      that the diagnostic's wording does not need to be
                      changed once multibyte characters are supported.  */
                   die (SORT_FAILURE, 0, _("multi-character tab %s"),
                        quote (optarg));
-                newtab = c.c;
+                newtab = g.c;
               }
 
             if (tab != TAB_DEFAULT && tab != newtab)

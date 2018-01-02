@@ -1540,8 +1540,8 @@ validate (struct Spec_list *s1, struct Spec_list *s2)
     }
 }
 
-size_t
-cbfwrite (grapheme *buf, size_t n, FILE *f)
+static size_t
+grfwrite (grapheme *buf, size_t n, FILE *f)
 {
   size_t wrote = 0;
   size_t i;
@@ -1631,7 +1631,7 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (gr
               ++i;
             }
           if (out_len > 0
-              && cbfwrite (&buf[begin], out_len, stdout) != out_len)
+              && grfwrite (&buf[begin], out_len, stdout) != out_len)
             die (EXIT_FAILURE, errno, _("write error"));
         }
 
@@ -1867,7 +1867,7 @@ main (int argc, char **argv)
           size_t nr = read_and_delete (io_buf, sizeof io_buf, &mbs);
           if (nr == 0)
             break;
-          if (cbfwrite (io_buf, nr, stdout) != nr)
+          if (grfwrite (io_buf, nr, stdout) != nr)
             die (EXIT_FAILURE, errno, _("write error"));
         }
     }
@@ -1959,7 +1959,7 @@ main (int argc, char **argv)
               size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf, &mbs);
               if (bytes_read == 0)
                 break;
-              if (cbfwrite (io_buf, bytes_read, stdout) != bytes_read)
+              if (grfwrite (io_buf, bytes_read, stdout) != bytes_read)
                 die (EXIT_FAILURE, errno, _("write error"));
             }
         }
