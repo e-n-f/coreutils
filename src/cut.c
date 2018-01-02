@@ -121,7 +121,7 @@ static size_t output_delimiter_length;
 
 /* The output field separator string.  Defaults to the 1-character
    string consisting of the input delimiter.  */
-static wchar_t *output_delimiter_string;
+static const wchar_t *output_delimiter_string;
 
 /* True if we have ever read standard input. */
 static bool have_read_stdin;
@@ -552,7 +552,6 @@ main (int argc, char **argv)
   bool ok;
   bool delim_specified = false;
   char *spec_list_string IF_LINT ( = NULL);
-  bool nosplit = false;
 
   initialize_main (&argc, &argv);
   set_program_name (argv[0]);
@@ -636,7 +635,7 @@ main (int argc, char **argv)
           break;
 
         case 'n':
-          nosplit = true;
+          /* nosplit = true; */
           break;
 
         case 's':
