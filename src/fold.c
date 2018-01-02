@@ -195,8 +195,6 @@ fold_file (char const *filename, size_t width)
 
               if (found_blank)
                 {
-                  size_t i;
-
                   /* Found a blank.  Don't output the part after it. */
                   logical_end++;
                   for (size_t i = 0; i < logical_end; i++)
@@ -209,6 +207,7 @@ fold_file (char const *filename, size_t width)
                   memmove (line_out, line_out + logical_end,
                            (offset_out - logical_end) * sizeof(grapheme));
                   offset_out -= logical_end;
+                  size_t i;
                   for (column = i = 0; i < offset_out; i++)
                     column = adjust_column (column, line_out[i]);
                   goto rescan;

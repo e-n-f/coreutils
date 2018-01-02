@@ -258,8 +258,8 @@ paste_parallel (size_t nfiles, char **fnamptr)
               err = errno;
               if (chr.c != WEOF && delims_saved)
                 {
-                  for (size_t i = 0; i < delims_saved; i++)
-                     xputwchar (delbuf[i]);
+                  for (size_t j = 0; j < delims_saved; j++)
+                     xputwchar (delbuf[j]);
                   delims_saved = 0;
                 }
 
@@ -306,8 +306,8 @@ paste_parallel (size_t nfiles, char **fnamptr)
                       /* No.  Some files were not closed for this line. */
                       if (delims_saved)
                         {
-                          for (size_t i = 0; i < delims_saved; i++)
-                            xputwchar (delbuf[i]);
+                          for (size_t j = 0; j < delims_saved; j++)
+                            xputwchar (delbuf[j]);
                           delims_saved = 0;
                         }
                       xputwchar (line_delim);

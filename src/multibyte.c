@@ -863,7 +863,7 @@ wstrnumcmp (char const *a, char const *b,
 
 /**** CB/Wide version of memchr */
 
-grapheme *
+grapheme * _GL_ATTRIBUTE_PURE
 grmemchr(grapheme *haystack, wchar_t needle, size_t n)
 {
   for (size_t i = 0; i < n; i++) {

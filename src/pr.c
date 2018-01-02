@@ -695,8 +695,8 @@ static bool use_col_separator = false;
    -a|COLUMN|-m is a 'space' and with the -J option a 'tab'. */
 static wchar_t const *col_sep_string = L"";
 static int col_sep_length = 0;
-static wchar_t *column_separator = L" ";
-static wchar_t *line_separator = L"\t";
+static const wchar_t *column_separator = L" ";
+static const wchar_t *line_separator = L"\t";
 
 /* Number of separator characters waiting to be printed as soon as we
    know that we have any input remaining to be printed. */
