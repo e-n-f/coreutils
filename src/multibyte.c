@@ -430,7 +430,7 @@ wquote (const wchar_t *s)
 
   size_t n = wcstombs(tmp, s, bytes);
   if (n == (size_t) -1)
-    return quote _("conversion error");
+    return _("conversion error");
   else
     return quote (tmp);
 }
@@ -899,7 +899,7 @@ int charwidth (wchar_t c)
 
   if (iswprint (c))
     return wcwidth (c);
-  else if (iscntrl (c))
+  else if (iswcntrl (c))
     return 0;
   else
     return 1; // unknown, so probably from the future of Unicode
