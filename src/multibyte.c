@@ -19,13 +19,6 @@
 #include "quotearg.h"
 #include "quote.h"
 
-/* Use this to suppress gcc's "...may be used before initialized" warnings. */
-#if defined GCC_LINT || defined lint
-# define IF_LINT(Code) Code
-#else
-# define IF_LINT(Code) /* empty */
-#endif
-
 grapheme
 grnext (const char **s, const char *end, mbstate_t *mbs)
 {
@@ -125,7 +118,6 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
 {
   char tmp[MB_CUR_MAX];
   mbstate_t copy;
-  grapheme c;
 
   // Special case for the common case of a valid character
   // from just one byte.
@@ -133,6 +125,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
   int b = getc(f);
   if (b == EOF)
     {
+      grapheme c;
       c.c = WEOF;
       c.isbyte = false;
       return c;
@@ -146,6 +139,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
       if (peek)
         ungetc((unsigned char) b, f);
 
+      grapheme c;
       c.c = ch;
       c.isbyte = false;
       return c;
@@ -166,6 +160,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
   copy = *mbs;
   const char *s = tmp;
 
+  grapheme c;
   c = grnext(&s, s + i, &copy);
 
   if (peek)
@@ -335,7 +330,7 @@ wcscoll_loop (wchar_t const *s1, size_t s1size, wchar_t const *s2, size_t s2size
    but restore their original contents before returning.  Set errno to an
    error number if there is an error, and to zero otherwise.  */
 
-int
+static int
 wmemcoll (wchar_t *s1, size_t s1len, wchar_t *s2, size_t s2len)
 {
   int diff;
@@ -434,7 +429,10 @@ wquote (const wchar_t *s)
   char tmp[bytes];
 
   size_t n = wcstombs(tmp, s, bytes);
-  return quote(tmp);
+  if (n == (size_t) -1)
+    return quote _("conversion error");
+  else
+    return quote (tmp);
 }
 
 const char *
@@ -450,9 +448,9 @@ grnstr (const grapheme *s, size_t n)
         tmp[out++] = s[i].c;
       else
         {
-          int n = wctomb(tmp + out, s[i].c);
-          if (n > 0)
-            out += n;
+          int nn = wctomb(tmp + out, s[i].c);
+          if (nn > 0)
+            out += nn;
         }
     }
   tmp[out] = '\0';
@@ -890,7 +888,7 @@ int charwidth (wchar_t c)
       int wid;
       if (iswprint (c))
         wid = wcwidth (c);
-      else if (iscntrl (c))
+      else if (iswcntrl (c))
         wid = 0;
       else
         wid = 1;
