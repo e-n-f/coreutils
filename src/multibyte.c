@@ -537,10 +537,8 @@ grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
       c.c = L'\0';
       c.isbyte = false;
 
-      const grapheme *buffer;
       size_t buffer_len;
 
-      buffer = NULL;
       if (true)
         {
           c = fgetgr (stream, mbs);
