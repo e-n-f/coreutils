@@ -213,10 +213,25 @@ fputgr(grapheme c, FILE *f)
 
       char tmp[MB_CUR_MAX];
       int n = wctomb(tmp, c.c);
+
       if (n < 0)
         {
-          c.c = WEOF;
-          return c;
+          if (c.c <= UCHAR_MAX)
+            {
+              // This must be a byte in the C locale,
+              // where 0x80-0xFF are sometimes not
+              // regarded as characters.
+
+              int ret = putc(c.c, f);
+              if (ret == EOF)
+                  c.c = WEOF;
+              return c;
+            }
+          else
+            {
+              c.c = WEOF;
+              return c;
+            }
         }
 
       for (size_t i = 0; i < n; i++)
