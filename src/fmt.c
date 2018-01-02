@@ -590,7 +590,7 @@ get_paragraph (FILE *f, mbstate_t *mbs)
           next_char.c = WEOF;
           return false;
         }
-      putwchar (L'\n');
+      fputwcgr (L'\n', stdout);
       c = get_prefix (f, mbs);
     }
 
@@ -661,11 +661,11 @@ copy_rest (FILE *f, grapheme c, mbstate_t *mbs)
     {
       put_space (next_prefix_indent);
       for (s = prefix; out_column != in_column && *s; out_column += charwidth (s[-1]))
-        putwchar (*s++);
+        fputwcgr (*s++, stdout);
       if (c.c != WEOF && c.c != L'\n')
         put_space (in_column - out_column);
       if (c.c == WEOF && in_column >= next_prefix_indent + prefix_width)
-        putwchar (L'\n');
+        fputwcgr (L'\n', stdout);
     }
   while (c.c != L'\n' && c.c != WEOF)
     {
@@ -1032,7 +1032,7 @@ put_line (WORD *w, int indent)
     }
   put_word (w);
   last_line_width = out_column;
-  putwchar (L'\n');
+  fputwcgr (L'\n', stdout);
 }
 
 /* Output to stdout the word W.  */
@@ -1064,13 +1064,13 @@ put_space (int space)
       if (out_column + 1 < tab_target)
         while (out_column < tab_target)
           {
-            putwchar (L'\t');
+            fputwcgr (L'\t', stdout);
             out_column = (out_column / TABWIDTH + 1) * TABWIDTH;
           }
     }
   while (out_column < space_target)
     {
-      putwchar (L' ');
+      fputwcgr (L' ', stdout);
       out_column++;
     }
 }

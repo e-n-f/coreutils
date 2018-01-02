@@ -154,7 +154,7 @@ expand (void)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
 
                   while (++column < next_tab_column)
-                    if (putwchar (L' ') == WEOF)
+                    if (fputwcgr (L' ', stdout) == WEOF)
                       die (EXIT_FAILURE, errno, _("write error"));
 
                   c.c = L' ';

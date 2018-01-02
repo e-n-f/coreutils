@@ -1856,7 +1856,7 @@ print_page (void)
 
       if (pad_vertically)
         {
-          putwchar (L'\n');
+          fputwcgr (L'\n', stdout);
           --lines_left_on_page;
         }
 
@@ -1865,7 +1865,7 @@ print_page (void)
 
       if (double_space && pv)
         {
-          putwchar (L'\n');
+          fputwcgr (L'\n', stdout);
           --lines_left_on_page;
         }
     }
@@ -1881,7 +1881,7 @@ print_page (void)
     pad_down (lines_left_on_page + lines_per_footer);
   else if (keep_FF && print_a_FF)
     {
-      putwchar (L'\f');
+      fputwcgr (L'\f', stdout);
       print_a_FF = false;
     }
 
@@ -2096,7 +2096,7 @@ pad_across_to (int position)
   else
     {
       while (++h <= position)
-        putwchar (L' ');
+        fputwcgr (L' ', stdout);
       output_position = position;
     }
 }
@@ -2110,10 +2110,10 @@ static void
 pad_down (unsigned int lines)
 {
   if (use_form_feed)
-    putwchar (L'\f');
+    fputwcgr (L'\f', stdout);
   else
     for (unsigned int i = lines; i; --i)
-      putwchar (L'\n');
+      fputwcgr (L'\n', stdout);
 }
 
 /* Read the rest of the line.
@@ -2235,11 +2235,11 @@ print_white_space (void)
   while (goal - h_old > 1
          && (h_new = POS_AFTER_TAB (chars_per_output_tab, h_old)) <= goal)
     {
-      putwchar (output_tab_char);
+      fputwcgr (output_tab_char, stdout);
       h_old = h_new;
     }
   while (++h_old <= goal)
-    putwchar (L' ');
+    fputwcgr (L' ', stdout);
 
   output_position = goal;
   spaces_not_printed = 0;
@@ -2281,7 +2281,7 @@ print_sep_string (void)
                 {
                   if (spaces_not_printed > 0)
                     print_white_space ();
-                  putwchar (*s++);
+                  fputwcgr (*s++, stdout);
                   ++output_position;
                 }
             }

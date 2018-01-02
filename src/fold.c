@@ -201,7 +201,7 @@ fold_file (char const *filename, size_t width)
                     {
                       putgrapheme (line_out[i]);
                     }
-                  putwchar (L'\n');
+                  fputwcgr (L'\n', stdout);
                   /* Move the remainder to the beginning of the next line.
                      The areas being copied here might overlap. */
                   memmove (line_out, line_out + logical_end,

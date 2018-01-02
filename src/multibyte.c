@@ -198,7 +198,7 @@ fputgr(grapheme c, FILE *f)
 {
   if (c.isbyte)
     {
-      int ret = putc(c.c, f);
+      int ret = putc((unsigned char) c.c, f);
       if (ret == EOF)
         {
           c.c = WEOF;
@@ -209,12 +209,36 @@ fputgr(grapheme c, FILE *f)
     }
   else
     {
-      // TODO: Can we safely write wide characters and bytes
-      // to the same stream?
+      // TODO: Deal with different encoding states
 
-      c.c = putwc(c.c, f);
+      char tmp[MB_CUR_MAX];
+      int n = wctomb(tmp, c.c);
+      if (n < 0)
+        {
+          c.c = WEOF;
+          return c;
+        }
+
+      for (size_t i = 0; i < n; i++)
+        {
+          int ret = putc(tmp[i], f);
+          if (ret == EOF)
+            {
+              c.c = WEOF;
+              return c;
+            }
+        }
+
       return c;
     }
+}
+
+wchar_t fputwcgr (wchar_t c, FILE *f)
+{
+  grapheme g;
+  g.c = c;
+  g.isbyte = false;
+  return fputgr(g, f).c;
 }
 
 grapheme

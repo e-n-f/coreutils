@@ -281,7 +281,7 @@ cut_bytes (FILE *stream)
                   if (print_delimiter && is_range_start_index (byte_idx))
                     {
                       for (size_t i = 0; i < output_delimiter_length; i++)
-                        putwchar (output_delimiter_string[i]);
+                        fputwcgr (output_delimiter_string[i], stdout);
                     }
                   print_delimiter = true;
                 }
@@ -323,7 +323,7 @@ cut_characters (FILE *stream)
       else if (c.c == WEOF)
         {
           if (character_idx > 0)
-            putwchar (line_delim_wchar);
+            fputwcgr (line_delim_wchar, stdout);
           break;
         }
       else
@@ -336,7 +336,7 @@ cut_characters (FILE *stream)
                   if (print_delimiter && is_range_start_index (character_idx))
                     {
                       for (size_t i = 0; i < output_delimiter_length; i++)
-                        putwchar (output_delimiter_string[i]);
+                        fputwcgr (output_delimiter_string[i], stdout);
                     }
                   print_delimiter = true;
                 }
@@ -412,7 +412,7 @@ cut_fields (FILE *stream)
                     putgrapheme (field_1_buffer[i]);
                   /* Make sure the output line is newline terminated.  */
                   if (field_1_buffer[n_bytes - 1].c != line_delim_wchar)
-                    putwchar (line_delim_wchar);
+                    fputwcgr (line_delim_wchar, stdout);
                   c.c = line_delim_wchar;
                   c.isbyte = false;
                 }
@@ -446,7 +446,7 @@ cut_fields (FILE *stream)
           if (found_any_selected_field)
             {
               for (size_t i = 0; i < output_delimiter_length; i++)
-                putwchar (output_delimiter_string[i]);
+                fputwcgr (output_delimiter_string[i], stdout);
             }
           found_any_selected_field = true;
 
@@ -481,7 +481,7 @@ cut_fields (FILE *stream)
             {
               if (c.c == line_delim_wchar || prev_c.c != line_delim_wchar
                   || delim == line_delim_wchar)
-                putwchar (line_delim_wchar);
+                fputwcgr (line_delim_wchar, stdout);
             }
           if (c.c == WEOF)
             break;

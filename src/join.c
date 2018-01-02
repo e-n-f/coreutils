@@ -592,12 +592,12 @@ prfields (struct line const *line, size_t join_field, size_t autocount)
 
   for (i = 0; i < join_field && i < nfields; ++i)
     {
-      putwchar (output_separator);
+      fputwcgr (output_separator, stdout);
       prfield (i, line);
     }
   for (i = join_field + 1; i < nfields; ++i)
     {
-      putwchar (output_separator);
+      fputwcgr (output_separator, stdout);
       prfield (i, line);
     }
 }
@@ -642,9 +642,9 @@ prjoin (struct line const *line1, struct line const *line2)
           o = o->next;
           if (o == NULL)
             break;
-          putwchar (output_separator);
+          fputwcgr (output_separator, stdout);
         }
-      putwchar (eolchar);
+      fputwcgr (eolchar, stdout);
     }
   else
     {
@@ -666,7 +666,7 @@ prjoin (struct line const *line1, struct line const *line2)
       prfields (line1, join_field_1, autocount_1);
       prfields (line2, join_field_2, autocount_2);
 
-      putwchar (eolchar);
+      fputwcgr (eolchar, stdout);
     }
 }
 

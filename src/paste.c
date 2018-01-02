@@ -172,7 +172,7 @@ write_error (void)
 static inline void
 xputwchar (wchar_t c)
 {
-  if (putwchar (c) == WEOF)
+  if (fputwcgr (c, stdout) == WEOF)
     write_error ();
 }
 

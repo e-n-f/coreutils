@@ -408,7 +408,7 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
               && (grouping == GM_PREPEND || grouping == GM_BOTH
                   || (first_group_printed && (grouping == GM_APPEND
                                               || grouping == GM_SEPARATE))))
-            putwchar (delimiter);
+            fputwcgr (delimiter, stdout);
 
           if (new_group || grouping != GM_NONE)
             {
@@ -422,7 +422,7 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
             }
         }
       if ((grouping == GM_BOTH || grouping == GM_APPEND) && first_group_printed)
-        putwchar (delimiter);
+        fputwcgr (delimiter, stdout);
     }
   else
     {
@@ -471,7 +471,7 @@ check_file (const char *infile, const char *outfile, wchar_t delimiter)
                   if ((delimit_groups == DM_PREPEND)
                       || (delimit_groups == DM_SEPARATE
                           && !first_delimiter))
-                    putwchar (delimiter);
+                    fputwcgr (delimiter, stdout);
                 }
             }
 

@@ -16,6 +16,7 @@ grapheme fputgr(grapheme c, FILE *f);
 grapheme putgrapheme(grapheme c);
 grapheme getgrapheme(mbstate_t *mbs);
 grapheme fpeekgr(FILE *f, mbstate_t *mbs);
+wchar_t fputwcgr (wchar_t c, FILE *f);
 
 /* A 'struct linebuffer' holds a line of multibyte text. */
 
