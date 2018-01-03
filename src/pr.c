@@ -2681,7 +2681,7 @@ char_to_clump (grapheme c)
         }
 
     }
-  else if (! iswprint (c.c))
+  else if (iswcntrl (c.c))
     {
       if (use_esc_sequence)
         {
