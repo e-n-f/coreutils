@@ -130,6 +130,12 @@ my @Tests =
   ['delim-no-field1', qw(-d ''), '-b1', {EXIT=>1}, {ERR=>$nofield}],
   ['delim-no-field2', qw(-d:), '-b1', {EXIT=>1}, {ERR=>$nofield}],
 
+  # Prior to 1.22i, you couldn't use a delimiter that would sign-extend.
+  ['8bit-delim', '-d', "\255", '--out=_', '-f2,3', {IN=>"a\255b\255c\n"},
+   {OUT=>"b_c\n"}],
+  ['8bit-delim-2', '-d', "\255", '-f2,3', {IN=>"a\255b\255c\n"},
+   {OUT=>"b\255c\n"}],
+
   # newline processing for fields
   ['newline-1', '-f1-', {IN=>"a\nb"}, {OUT=>"a\nb\n"}],
   ['newline-2', '-f1-', {IN=>""}, {OUT=>""}],
@@ -227,18 +233,13 @@ my @Tests =
 
 my @Sbtests =
   (
-  # Prior to 1.22i, you couldn't use a delimiter that would sign-extend.
-  ['8bit-delim', '-d', "\255", '--out=_', '-f2,3', {IN=>"a\255b\255c\n"},
-   {OUT=>"b_c\n"}],
-  ['8bit-delim-2', '-d', "\255", '-f2,3', {IN=>"a\255b\255c\n"},
-   {OUT=>"b\255c\n"}],
   );
 
 my @Mbtests =
   (
-  ['8bit-delim', '-d', "⇒", '--out=_', '-f2,3', {IN=>"a⇒b⇒c\n"},
+  ['wide-delim', '-d', "⇒", '--out=_', '-f2,3', {IN=>"a⇒b⇒c\n"},
    {OUT=>"b_c\n"}],
-  ['8bit-delim-2', '-d', "⇒", '-f2,3', {IN=>"a⇒b⇒c\n"},
+  ['wide-delim-2', '-d', "⇒", '-f2,3', {IN=>"a⇒b⇒c\n"},
    {OUT=>"b⇒c\n"}],
   );
 

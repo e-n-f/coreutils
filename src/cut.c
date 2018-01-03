@@ -107,7 +107,7 @@ static bool suppress_non_delimited;
 static bool complement;
 
 /* The delimiter character for field mode. */
-static wchar_t delim;
+static grapheme delim;
 
 /* The delimiter for each line/record. */
 static unsigned char line_delim_byte = '\n';
@@ -121,7 +121,7 @@ static size_t output_delimiter_length;
 
 /* The output field separator string.  Defaults to the 1-character
    string consisting of the input delimiter.  */
-static const wchar_t *output_delimiter_string;
+static const grapheme *output_delimiter_string;
 
 /* True if we have ever read standard input. */
 static bool have_read_stdin;
@@ -281,7 +281,7 @@ cut_bytes (FILE *stream)
                   if (print_delimiter && is_range_start_index (byte_idx))
                     {
                       for (size_t i = 0; i < output_delimiter_length; i++)
-                        fputwcgr (output_delimiter_string[i], stdout);
+                        fputgr (output_delimiter_string[i], stdout);
                     }
                   print_delimiter = true;
                 }
@@ -336,7 +336,7 @@ cut_characters (FILE *stream)
                   if (print_delimiter && is_range_start_index (character_idx))
                     {
                       for (size_t i = 0; i < output_delimiter_length; i++)
-                        fputwcgr (output_delimiter_string[i], stdout);
+                        fputgr (output_delimiter_string[i], stdout);
                     }
                   print_delimiter = true;
                 }
@@ -382,7 +382,7 @@ cut_fields (FILE *stream)
           size_t n_bytes;
 
           len = grgetndelim2 (&field_1_buffer, &field_1_bufsize, 0,
-                            GETNLINE_NO_LIMIT, delim, line_delim_wchar, stream, &mbs);
+                            GETNLINE_NO_LIMIT, delim.c, line_delim_wchar, stream, &mbs);
           if (len < 0)
             {
               free (field_1_buffer);
@@ -400,7 +400,7 @@ cut_fields (FILE *stream)
           /* If the first field extends to the end of line (it is not
              delimited) and we are printing all non-delimited lines,
              print this one.  */
-          if (field_1_buffer[n_bytes - 1].c != delim)
+          if (field_1_buffer[n_bytes - 1].c != delim.c)
             {
               if (suppress_non_delimited)
                 {
@@ -424,7 +424,7 @@ cut_fields (FILE *stream)
                 putgrapheme (field_1_buffer[i]);
 
               /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
-              if (delim == line_delim_wchar)
+              if (delim.c == line_delim_wchar)
                 {
                   grapheme last_c = fpeekgr (stream, &mbs);
                   if (last_c.c != WEOF)
@@ -445,11 +445,11 @@ cut_fields (FILE *stream)
           if (found_any_selected_field)
             {
               for (size_t i = 0; i < output_delimiter_length; i++)
-                fputwcgr (output_delimiter_string[i], stdout);
+                fputgr (output_delimiter_string[i], stdout);
             }
           found_any_selected_field = true;
 
-          while ((c = fgetgr (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c && c.c != line_delim_wchar && c.c != WEOF)
             {
               putgrapheme (c);
               prev_c = c;
@@ -457,21 +457,21 @@ cut_fields (FILE *stream)
         }
       else
         {
-          while ((c = fgetgr (stream, &mbs)).c != delim && c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c && c.c != line_delim_wchar && c.c != WEOF)
             {
               prev_c = c;
             }
         }
 
       /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
-      if (delim == line_delim_wchar && c.c == delim)
+      if (delim.c == line_delim_wchar && c.c == delim.c)
         {
           grapheme last_c = fpeekgr (stream, &mbs);
           if (last_c.c == WEOF)
             c = last_c;
         }
 
-      if (c.c == delim)
+      if (c.c == delim.c)
         next_item (&field_idx);
       else if (c.c == line_delim_wchar || c.c == WEOF)
         {
@@ -479,7 +479,7 @@ cut_fields (FILE *stream)
               || !(suppress_non_delimited && field_idx == 1))
             {
               if (c.c == line_delim_wchar || prev_c.c != line_delim_wchar
-                  || delim == line_delim_wchar)
+                  || delim.c == line_delim_wchar)
                 fputwcgr (line_delim_wchar, stdout);
             }
           if (c.c == WEOF)
@@ -565,7 +565,7 @@ main (int argc, char **argv)
   /* By default, all non-delimited lines are printed.  */
   suppress_non_delimited = false;
 
-  delim = L'\0';
+  delim = grapheme_wchar (L'\0');
   have_read_stdin = false;
 
   while ((optc = getopt_long (argc, argv, "b:c:d:f:nsz", longopts, NULL)) != -1)
@@ -601,14 +601,15 @@ main (int argc, char **argv)
           /* Interpret -d '' to mean 'use the NUL byte as the delimiter.'  */
           if (optarg[0] == '\0')
             {
-              delim = L'\0';
+              delim = grapheme_wchar (L'\0');
               delim_specified = true;
             }
           else
             {
               mbstate_t mbs = { 0 };
-              size_t n = mbrtowc(&delim, optarg, strlen(optarg), &mbs);
-              if (n == (size_t) -1 || n == (size_t) -2 || optarg[n] != '\0')
+              const char *s = optarg;
+              delim = grnext(&s, s + strlen(s), &mbs);
+              if (delim.c == WEOF || *s != '\0')
                 FATAL_ERROR (_("the delimiter must be a single character."));
               delim_specified = true;
             }
@@ -620,16 +621,18 @@ main (int argc, char **argv)
              'use the NUL byte as the delimiter.'  */
           if (optarg[0] == '\0')
             {
+              static grapheme d[2];
+              d[0] = grapheme_wchar (L'\0');
+              d[1] = grapheme_wchar (L'\0');
+              output_delimiter_string = d;
               output_delimiter_length = 1;
-              output_delimiter_string = L"";
             }
           else
             {
-              wchar_t tmp[strlen(optarg) + 1];
-              if (mbstowcs(tmp, optarg, strlen(optarg) + 1) == (size_t) -1)
-                FATAL_ERROR (_("multibyte conversion"));
-              output_delimiter_length = wcslen(tmp);
-              output_delimiter_string = xwcsdup(tmp);
+              grapheme tmp[strlen(optarg) + 1];
+              mbstogrs(tmp, optarg);
+              output_delimiter_length = grslen(tmp);
+              output_delimiter_string = grsdup(tmp);
             }
           break;
 
@@ -681,13 +684,13 @@ main (int argc, char **argv)
               | (complement ? SETFLD_COMPLEMENT : 0) );
 
   if (!delim_specified)
-    delim = L'\t';
+    delim = grapheme_wchar (L'\t');
 
   if (output_delimiter_string == NULL)
     {
-      static wchar_t d[2];
+      static grapheme d[2];
       d[0] = delim;
-      d[1] = L'\0';
+      d[1] = grapheme_wchar (L'\0');
       output_delimiter_string = d;
       output_delimiter_length = 1;
     }

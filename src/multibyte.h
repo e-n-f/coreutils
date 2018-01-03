@@ -76,4 +76,6 @@ grapheme *grsdup (const grapheme *s);
 grapheme grapheme_wchar (wchar_t c);
 grapheme grapheme_byte (unsigned char c);
 
+void mbstogrs(grapheme *out, const char *in);
+
 #endif

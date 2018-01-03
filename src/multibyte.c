@@ -939,3 +939,17 @@ grapheme_byte (unsigned char c)
   g.isbyte = true;
   return g;
 }
+
+void
+mbstogrs(grapheme *out, const char *in)
+{
+  const char *end = in + strlen(in);
+  mbstate_t mbs = { 0 };
+  grapheme g;
+  size_t n = 0;
+
+  while ((g = grnext(&in, end, &mbs)).c != WEOF)
+    out[n++] = g;
+
+  out[n] = grapheme_wchar (L'\0');
+}
