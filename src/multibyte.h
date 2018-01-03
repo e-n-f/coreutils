@@ -71,4 +71,7 @@ int wstrnumcmp (char const *, char const *, wint_t, wint_t);
 
 int charwidth (wchar_t c);
 
+size_t grslen (const grapheme *s);
+grapheme *grsdup (const grapheme *s);
+
 #endif

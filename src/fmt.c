@@ -187,7 +187,7 @@ static bool split;
 static bool uniform;
 
 /* Prefix minus leading and trailing spaces (default "").  */
-static const wchar_t *prefix;
+static const grapheme *prefix;
 
 /* User-supplied maximum line width (default WIDTH).  The only output
    lines longer than this will each comprise a single word.  */
@@ -341,7 +341,9 @@ main (int argc, char **argv)
 
   crown = tagged = split = uniform = false;
   max_width = WIDTH;
-  prefix = L"";
+
+  static grapheme orig_prefix = { .c = L'\0', .isbyte = false };
+  prefix = &orig_prefix;
   prefix_length = prefix_lead_space = prefix_full_length = prefix_width = 0;
 
   if (argc > 1 && argv[1][0] == '-' && ISDIGIT (argv[1][1]))
@@ -468,29 +470,39 @@ main (int argc, char **argv)
    and record the lengths of the prefix and the space trimmed.  */
 
 static void
-set_prefix_wc (wchar_t *p)
+set_prefix_grs (grapheme *p)
 {
-  wchar_t *s;
+  // Trim leading spaces
 
   prefix_lead_space = 0;
-  while (*p == L' ')
+  while (p->c == L' ')
     {
       prefix_lead_space++;
       p++;
     }
   prefix = p;
-  prefix_full_length = wcslen (p);
+
+  // Calculate full width
+
+  prefix_full_length = grslen (p);
   prefix_full_width = 0;
   for (size_t i = 0; i < prefix_full_length; i++)
-    prefix_full_width += charwidth (p[i]);
+    prefix_full_width += charwidth (p[i].c);
+
+  // Trim trailing spaces
+
+  grapheme *s;
   s = p + prefix_full_length;
-  while (s > p && s[-1] == L' ')
+  while (s > p && s[-1].c == L' ')
     s--;
-  *s = '\0';
+  s->c = '\0';
+
+  // Calculate trimmed width
+
   prefix_length = s - p;
   prefix_width = 0;
   for (size_t i = 0; i < prefix_length; i++)
-    prefix_width += charwidth (p[i]);
+    prefix_width += charwidth (p[i].c);
 }
 
 /* Trim space from the front and back of the string P, yielding the prefix,
@@ -499,10 +511,17 @@ set_prefix_wc (wchar_t *p)
 
 static void set_prefix (const char *p)
 {
-  wchar_t tmp[strlen(p) + 1];
-  if (mbstowcs(tmp, p, strlen(p) + 1) == (size_t) -1)
-     error (0, errno, _("multibyte string conversion"));
-  set_prefix_wc(wcsdup(tmp));
+  const char *end = p + strlen(p);
+  mbstate_t mbs = { 0 };
+  grapheme tmp[strlen(p) + 1];
+  grapheme g;
+  size_t out = 0;
+
+  while ((g = grnext(&p, end, &mbs)).c != WEOF)
+    tmp[out++] = g;
+  tmp[out].c = L'\0';
+
+  set_prefix_grs (grsdup(tmp));
 }
 
 /* read file F and send formatted output to stdout.  */
@@ -654,14 +673,13 @@ get_paragraph (FILE *f, mbstate_t *mbs)
 static grapheme
 copy_rest (FILE *f, grapheme c, mbstate_t *mbs)
 {
-  const wchar_t *s;
-
   out_column = 0;
   if (in_column > next_prefix_indent || (c.c != L'\n' && c.c != WEOF))
     {
+      const grapheme *s;
       put_space (next_prefix_indent);
-      for (s = prefix; out_column != in_column && *s; out_column += charwidth (s[-1]))
-        fputwcgr (*s++, stdout);
+      for (s = prefix; out_column != in_column && s->c != L'\0'; out_column += charwidth (s[-1].c))
+        fputgr (*s++, stdout);
       if (c.c != WEOF && c.c != L'\n')
         put_space (in_column - out_column);
       if (c.c == WEOF && in_column >= next_prefix_indent + prefix_width)
@@ -768,14 +786,14 @@ get_prefix (FILE *f, mbstate_t *mbs)
       prefix_lead_space : in_column;
   else
     {
-      const wchar_t *p;
+      const grapheme *p;
       next_prefix_indent = in_column;
-      for (p = prefix; *p != L'\0'; p++)
+      for (p = prefix; p->c != L'\0'; p++)
         {
-          wchar_t pc = *p;
-          if (c.c != pc)
+          grapheme pc = *p;
+          if (c.c != pc.c)
             return c;
-          in_column += charwidth (pc);
+          in_column += charwidth (pc.c);
           c = fgetgr (f, mbs);
         }
       c = get_space (f, c, mbs);
@@ -1020,7 +1038,8 @@ put_line (WORD *w, int indent)
 
   out_column = 0;
   put_space (prefix_indent);
-  fputws (prefix, stdout);
+  for (size_t i = 0; prefix[i].c != L'\0'; i++)
+    fputgr (prefix[i], stdout);
   out_column += prefix_width;
   put_space (indent - out_column);
 

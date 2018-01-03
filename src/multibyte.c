@@ -941,3 +941,21 @@ int charwidth (wchar_t c)
   else
     return 1; // unknown, so probably from the future of Unicode
 }
+
+size_t _GL_ATTRIBUTE_PURE
+grslen (const grapheme *s)
+{
+  size_t i = 0;
+  while (s[i].c != L'\0')
+    i++;
+  return i;
+}
+
+grapheme *
+grsdup (const grapheme *s)
+{
+  size_t n = grslen(s);
+  grapheme *out = xmalloc((n + 1) * sizeof(grapheme));
+  memcpy(out, s, (n + 1) * sizeof(grapheme));
+  return out;
+}
