@@ -1856,7 +1856,7 @@ main (int argc, char **argv)
   if (squeeze_repeats && non_option_args == 1)
     {
       set_initialize (s1, complement, in_squeeze_set);
-      squeeze_filter (io_buf, sizeof io_buf, &mbs, plain_read);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, plain_read);
     }
   else if (delete && non_option_args == 1)
     {
@@ -1864,7 +1864,7 @@ main (int argc, char **argv)
 
       while (true)
         {
-          size_t nr = read_and_delete (io_buf, sizeof io_buf, &mbs);
+          size_t nr = read_and_delete (io_buf, sizeof io_buf / sizeof(grapheme), &mbs);
           if (nr == 0)
             break;
           if (grfwrite (io_buf, nr, stdout) != nr)
@@ -1875,7 +1875,7 @@ main (int argc, char **argv)
     {
       set_initialize (s1, complement, in_delete_set);
       set_initialize (s2, false, in_squeeze_set);
-      squeeze_filter (io_buf, sizeof io_buf, &mbs, read_and_delete);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_delete);
     }
   else if (translating)
     {
@@ -1950,13 +1950,13 @@ main (int argc, char **argv)
       if (squeeze_repeats)
         {
           set_initialize (s2, false, in_squeeze_set);
-          squeeze_filter (io_buf, sizeof io_buf, &mbs, read_and_xlate);
+          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_xlate);
         }
       else
         {
           while (true)
             {
-              size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf, &mbs);
+              size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf / sizeof(grapheme), &mbs);
               if (bytes_read == 0)
                 break;
               if (grfwrite (io_buf, bytes_read, stdout) != bytes_read)
