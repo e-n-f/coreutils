@@ -73,5 +73,7 @@ int charwidth (wchar_t c);
 
 size_t grslen (const grapheme *s);
 grapheme *grsdup (const grapheme *s);
+grapheme grapheme_wchar (wchar_t c);
+grapheme grapheme_byte (unsigned char c);
 
 #endif

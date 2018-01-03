@@ -220,14 +220,9 @@ fold_file (char const *filename, size_t width)
               continue;
             }
 
-          grapheme c2;
-          c2.isbyte = false;
-          c2.c = L'\n';
-          line_out[offset_out++] = c2;
+          line_out[offset_out++] = grapheme_wchar (L'\n');
           for (size_t i = 0; i < offset_out; i++)
-            {
-              putgrapheme (line_out[i]);
-            }
+            putgrapheme (line_out[i]);
           column = offset_out = 0;
           goto rescan;
         }

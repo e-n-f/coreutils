@@ -495,7 +495,7 @@ set_prefix_grs (grapheme *p)
   s = p + prefix_full_length;
   while (s > p && s[-1].c == L' ')
     s--;
-  s->c = '\0';
+  *s = grapheme_wchar (L'\0');
 
   // Calculate trimmed width
 
@@ -519,7 +519,7 @@ static void set_prefix (const char *p)
 
   while ((g = grnext(&p, end, &mbs)).c != WEOF)
     tmp[out++] = g;
-  tmp[out].c = L'\0';
+  tmp[out] = grapheme_wchar (L'\0');
 
   set_prefix_grs (grsdup(tmp));
 }
@@ -605,8 +605,7 @@ get_paragraph (FILE *f, mbstate_t *mbs)
       c = copy_rest (f, c, mbs);
       if (c.c == WEOF)
         {
-          next_char.isbyte = false;
-          next_char.c = WEOF;
+          next_char = grapheme_wchar (WEOF);
           return false;
         }
       fputwcgr (L'\n', stdout);

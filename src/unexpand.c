@@ -194,12 +194,7 @@ unexpand (void)
                           column = next_tab_column;
 
                           if (pending)
-                            {
-                              grapheme tab;
-                              tab.c = L'\t';
-                              tab.isbyte = false;
-                              pending_blank[0] = tab;
-                            }
+                            pending_blank[0] = grapheme_wchar (L'\t');
                         }
                       else
                         {
@@ -224,10 +219,7 @@ unexpand (void)
                             }
 
                           /* Replace the pending blanks by a tab or two.  */
-                          grapheme tab;
-                          tab.c = L'\t';
-                          tab.isbyte = false;
-                          pending_blank[0] = c = tab;
+                          pending_blank[0] = c = grapheme_wchar (L'\t');
                         }
 
                       /* Discard pending blanks, unless it was a single
@@ -254,12 +246,7 @@ unexpand (void)
               if (pending)
                 {
                   if (pending > 1 && one_blank_before_tab_stop)
-                    {
-                      grapheme tab;
-                      tab.c = L'\t';
-                      tab.isbyte = false;
-                      pending_blank[0] = tab;
-                    }
+                    pending_blank[0] = grapheme_wchar (L'\t');
                   for (size_t i = 0; i < pending; i++)
                     {
                       if (putgrapheme(pending_blank[i]).c == WEOF)

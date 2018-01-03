@@ -413,8 +413,7 @@ cut_fields (FILE *stream)
                   /* Make sure the output line is newline terminated.  */
                   if (field_1_buffer[n_bytes - 1].c != line_delim_wchar)
                     fputwcgr (line_delim_wchar, stdout);
-                  c.c = line_delim_wchar;
-                  c.isbyte = false;
+                  c = grapheme_wchar (line_delim_wchar);
                 }
               continue;
             }

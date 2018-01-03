@@ -343,8 +343,7 @@ paste_parallel (size_t nfiles, char **fnamptr)
                   /* If the last line of the last file lacks a newline,
                      print one anyhow.  POSIX requires this.  */
                   if (chr.c == WEOF) {
-                    chr.c = line_delim;
-                    chr.isbyte = false;
+                    chr = grapheme_wchar (line_delim);
                   }
                   xputgrapheme (chr);
                 }

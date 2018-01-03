@@ -2235,10 +2235,7 @@ getmonth (char const *month, char **ea)
           grapheme mc;
           mc = grpeek (&m, mend, &mbs);
           if (mc.c == WEOF)
-            {
-              mc.c = L'\0';
-              mc.isbyte = false;
-            }
+            mc = grapheme_wchar (L'\0');
 
           if (!*n)
             {

@@ -25,13 +25,7 @@ grnext (const char **s, const char *end, mbstate_t *mbs)
   // No bytes remained, so this is EOF
 
   if (*s == NULL || *s >= end)
-    {
-      grapheme ret;
-
-      ret.c = WEOF;
-      ret.isbyte = false;
-      return ret;
-    }
+    return grapheme_wchar (WEOF);
 
   wchar_t c;
   mbstate_t mbs_copy = *mbs;
@@ -56,14 +50,10 @@ grnext (const char **s, const char *end, mbstate_t *mbs)
       if (j > end - *s)
         j = end - *s;
 
-      grapheme ret;
-      ret.c = L'\0';
-      ret.isbyte = false;
-
       *s += j;
       *mbs = mbs_copy;
 
-      return ret;
+      return grapheme_wchar (L'\0');
     }
   else if (n == (size_t) -1 || n == (size_t) -2)
     {
@@ -72,12 +62,9 @@ grnext (const char **s, const char *end, mbstate_t *mbs)
       // Leave the decoding state however it was, since nothing was
       // decoded.
 
-      grapheme ret;
-      ret.c = (unsigned char) **s;
-      ret.isbyte = true;
+      grapheme ret = grapheme_byte (**s);
 
       (*s)++;
-
       return ret;
     }
   else
@@ -85,14 +72,10 @@ grnext (const char **s, const char *end, mbstate_t *mbs)
       // Legitimate wide character.  Put as many bytes as were not used back
       // into the stream, and return the character.
 
-      grapheme ret;
-      ret.c = c;
-      ret.isbyte = false;
-
       (*s) += n;
       *mbs = mbs_copy;
 
-      return ret;
+      return grapheme_wchar (c);
     }
 }
 
@@ -124,12 +107,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
 
   int b = getc(f);
   if (b == EOF)
-    {
-      grapheme c;
-      c.c = WEOF;
-      c.isbyte = false;
-      return c;
-    }
+    return grapheme_wchar (WEOF);
 
   tmp[0] = b;
   copy = *mbs;
@@ -139,10 +117,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
       if (peek)
         ungetc((unsigned char) b, f);
 
-      grapheme c;
-      c.c = ch;
-      c.isbyte = false;
-      return c;
+      return grapheme_wchar (ch);
     }
 
   // May need to read as many as MB_CUR_MAX bytes ahead to get
@@ -200,10 +175,7 @@ fputgr(grapheme c, FILE *f)
     {
       int ret = putc((unsigned char) c.c, f);
       if (ret == EOF)
-        {
-          c.c = WEOF;
-          c.isbyte = false;
-        }
+        return grapheme_wchar (WEOF);
 
       return c;
     }
@@ -250,10 +222,7 @@ fputgr(grapheme c, FILE *f)
 
 wchar_t fputwcgr (wchar_t c, FILE *f)
 {
-  grapheme g;
-  g.c = c;
-  g.isbyte = false;
-  return fputgr(g, f).c;
+  return fputgr(grapheme_wchar (c), f).c;
 }
 
 grapheme
@@ -310,8 +279,7 @@ readgrlinebuffer_delim (struct grlinebuffer *linebuffer, FILE *stream,
             return NULL;
           if (p[-1].c == delimiter)
             break;
-          c.c = delimiter;
-          c.isbyte = false;
+          c = grapheme_wchar (delimiter);
         }
       if (p == end)
         {
@@ -572,9 +540,7 @@ grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
       /* Here always ptr + size == read_pos + nbytes_avail.
          Also nbytes_avail > 0 || size < nmax.  */
 
-      grapheme c;
-      c.c = L'\0';
-      c.isbyte = false;
+      grapheme c = grapheme_wchar (L'\0');
 
       size_t buffer_len;
 
@@ -649,11 +615,7 @@ grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
 
   /* Done - NUL terminate and return the number of bytes read.
      At this point we know that nbytes_avail >= 1.  */
-  grapheme c;
-  c.c = L'\0';
-  c.isbyte = false;
-  *read_pos = c;
-
+  *read_pos = grapheme_wchar (L'\0');
   bytes_stored = read_pos - (ptr + offset);
 
  unlock_done:
@@ -958,4 +920,22 @@ grsdup (const grapheme *s)
   grapheme *out = xmalloc((n + 1) * sizeof(grapheme));
   memcpy(out, s, (n + 1) * sizeof(grapheme));
   return out;
+}
+
+grapheme
+grapheme_wchar (wchar_t c)
+{
+  grapheme g;
+  g.c = c;
+  g.isbyte = false;
+  return g;
+}
+
+grapheme
+grapheme_byte (unsigned char c)
+{
+  grapheme g;
+  g.c = c;
+  g.isbyte = true;
+  return g;
 }

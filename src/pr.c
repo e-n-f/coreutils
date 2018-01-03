@@ -2042,8 +2042,7 @@ add_line_number (COLUMN *p)
   for (i = chars_per_number; i > 0; i--)
     {
       grapheme c;
-      c.c = btowc(*s++);
-      c.isbyte = false;
+      c = grapheme_wchar (btowc(*s++));
       (p->char_func) (c);
     }
 
@@ -2057,13 +2056,13 @@ add_line_number (COLUMN *p)
           i = number_width - chars_per_number;
           while (i-- > 0)
             {
-              grapheme c = { .c = L' ', .isbyte = false };
+              grapheme c = grapheme_wchar (L' ');
               (p->char_func) (c);
             }
         }
       else
         {
-          grapheme c = { .c = number_separator, .isbyte = false };
+          grapheme c = grapheme_wchar (number_separator);
           (p->char_func) (c);
         }
     }
@@ -2072,7 +2071,7 @@ add_line_number (COLUMN *p)
        separator with a single column output. No column_width requirement
        has to be considered. */
     {
-      grapheme c = { .c = number_separator, .isbyte = false };
+      grapheme c = grapheme_wchar (number_separator);
       (p->char_func) (c);
       if (number_separator == L'\t')
         output_position = POS_AFTER_TAB (chars_per_output_tab,
@@ -2668,10 +2667,7 @@ char_to_clump (grapheme c)
       if (untabify_input)
         {
           for (i = width; i; --i)
-            {
-              grapheme space = { .c = ' ', .isbyte = false };
-              *s++ = space;
-            }
+            *s++ = grapheme_wchar (L' ');
           chars = width;
         }
       else
@@ -2687,14 +2683,10 @@ char_to_clump (grapheme c)
         {
           width = 4;
           chars = 4;
-          grapheme bs = { .c = L'\\', .isbyte = false };
-          *s++ = bs;
+          *s++ = grapheme_wchar (L'\\');
           swprintf (esc_buff, 4, L"%03o", c.c);
           for (i = 0; i <= 2; ++i)
-            {
-              grapheme oct = { .c = esc_buff[i], .isbyte = false };
-              *s++ = oct;
-            }
+            *s++ = grapheme_wchar (esc_buff[i]);
         }
       else if (use_cntrl_prefix)
         {
@@ -2703,23 +2695,17 @@ char_to_clump (grapheme c)
               width = 2;
               chars = 2;
 
-              grapheme ch = { .c = L'^', .isbyte = false };
-              *s++ = ch;
-              ch.c = c.c ^ 0100;
-              *s = ch;
+              *s++ = grapheme_wchar (L'^');
+              *s = grapheme_wchar (c.c ^ 0100);
             }
           else
             {
               width = 4;
               chars = 4;
-              grapheme bs = { .c = L'\\', .isbyte = false };
-              *s++ = bs;
+              *s++ = grapheme_wchar (L'\\');
               swprintf (esc_buff, 4, L"%03o", c.c);
               for (i = 0; i <= 2; ++i)
-                {
-                  grapheme oct = { .c = esc_buff[i], .isbyte = false };
-                  *s++ = oct;
-                }
+                *s++ = grapheme_wchar (esc_buff[i]);
             }
         }
       else if (c.c == L'\b')
