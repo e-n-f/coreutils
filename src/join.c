@@ -142,7 +142,7 @@ static struct outlist *outlist_end = &outlist_head;
 /* Tab character separating fields.  If negative, fields are separated
    by any nonempty string of blanks, otherwise by exactly one
    tab character whose value (when cast to unsigned char) equals TAB.  */
-static wint_t tab = WEOF;
+static grapheme tab = { .c = WEOF, .isbyte = false };
 
 /* If nonzero, check that the input is correctly ordered. */
 static enum
@@ -279,13 +279,13 @@ xfields (struct line *line)
   if (ptr == lim)
     return;
 
-  if (tab != WEOF && tab != '\n')
+  if (tab.c != WEOF && tab.c != '\n')
     {
       grapheme *sep;
-      for (; (sep = grmemchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
+      for (; (sep = grmemchr (ptr, tab.c, lim - ptr)) != NULL; ptr = sep + 1)
         extract_field (line, ptr, sep - ptr);
     }
-  else if (tab == WEOF)
+  else if (tab.c == WEOF)
     {
       /* Skip leading blanks before the first field.  */
       while (wfield_sep (ptr->c))
@@ -588,16 +588,16 @@ prfields (struct line const *line, size_t join_field, size_t autocount)
 {
   size_t i;
   size_t nfields = autoformat ? autocount : line->nfields;
-  wchar_t output_separator = tab == WEOF ? L' ' : tab;
+  grapheme output_separator = tab.c == WEOF ? grapheme_wchar (L' ') : tab;
 
   for (i = 0; i < join_field && i < nfields; ++i)
     {
-      fputwcgr (output_separator, stdout);
+      fputgr (output_separator, stdout);
       prfield (i, line);
     }
   for (i = join_field + 1; i < nfields; ++i)
     {
-      fputwcgr (output_separator, stdout);
+      fputgr (output_separator, stdout);
       prfield (i, line);
     }
 }
@@ -608,7 +608,7 @@ static void
 prjoin (struct line const *line1, struct line const *line2)
 {
   const struct outlist *outlist;
-  wint_t output_separator = tab == WEOF ? L' ' : tab;
+  grapheme output_separator = tab.c == WEOF ? grapheme_wchar (L' ') : tab;
   size_t field;
   struct line const *line;
 
@@ -642,7 +642,7 @@ prjoin (struct line const *line1, struct line const *line2)
           o = o->next;
           if (o == NULL)
             break;
-          fputwcgr (output_separator, stdout);
+          fputgr (output_separator, stdout);
         }
       fputwcgr (eolchar, stdout);
     }
@@ -1121,23 +1121,24 @@ main (int argc, char **argv)
 
         case 't':
           {
-            wchar_t newtab;
+            grapheme newtab;
             if (optarg[0] == '\0')
-              newtab = L'\n'; /* '' => process the whole line.  */
+              newtab = grapheme_wchar (L'\n'); /* '' => process the whole line.  */
             else
               {
                 mbstate_t mbs = { 0 };
-                size_t n = mbrtowc(&newtab, optarg, strlen(optarg), &mbs);
-                if (n == (size_t) -1 || n == (size_t) -2 || optarg[n] != '\0')
-                  {
-                    if (STREQ (optarg, "\\0"))
-                      newtab = L'\0';
-                    else
-                      die (EXIT_FAILURE, 0, _("multi-character tab %s"),
-                           quote (optarg));
-                  }
+                const char *s = optarg, *end = optarg + strlen(optarg);
+                newtab = grnext (&s, end, &mbs);
+                if (newtab.c == WEOF || (grpeek (&s, end, &mbs)).c != WEOF)
+                 {
+                   if (STREQ (optarg, "\\0"))
+                     newtab = grapheme_wchar (L'\0');
+                   else
+                     die (EXIT_FAILURE, 0, _("multi-character tab %s"),
+                          quote (optarg));
+                 }
               }
-            if (tab != WEOF && tab != newtab)
+            if (tab.c != WEOF && tab.c != newtab.c)
               die (EXIT_FAILURE, 0, _("incompatible tabs"));
             tab = newtab;
           }
