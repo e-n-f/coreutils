@@ -1183,6 +1183,9 @@ is_in (struct List_element *p, wchar_t c)
 
 static bool
 is_in_spec_list (struct Spec_list *s, wchar_t c) {
+  if (s == NULL)
+    return false;
+
   s->tail = s->head->next;
 
   while (s->tail != NULL)
@@ -1610,7 +1613,7 @@ grfwrite (grapheme *buf, size_t n, FILE *f)
    character is in the squeeze set.  */
 
 static void
-squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *), struct Spec_list *rules, bool complement)
+squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *, struct Spec_list *, bool), struct Spec_list *rules, bool complement, struct Spec_list *read_rules, bool read_complement)
 {
   /* A value distinct from any character that may have been stored in a
      buffer as the result of a block-read in the function squeeze_filter.  */
@@ -1624,7 +1627,7 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (gr
     {
       if (i >= nr)
         {
-          nr = reader (buf, size, mbs);
+          nr = reader (buf, size, mbs, read_rules, read_complement);
           if (nr == 0)
             break;
           i = 0;
@@ -1695,7 +1698,7 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (gr
 }
 
 static size_t
-plain_read (grapheme *buf, size_t size, mbstate_t *mbs)
+plain_read (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *ignored_rule, bool ignored_complement)
 {
   size_t n = 0;
   while (n < size)
@@ -1721,7 +1724,7 @@ plain_read (grapheme *buf, size_t size, mbstate_t *mbs)
    or 0 upon EOF.  */
 
 static size_t
-read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs)
+read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *rule, bool complement)
 {
   size_t n_saved;
 
@@ -1730,7 +1733,7 @@ read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs)
      just deleted all the characters in a buffer.  */
   do
     {
-      size_t nr = plain_read (buf, size, mbs);
+      size_t nr = plain_read (buf, size, mbs, NULL, false);
 
       if (nr == 0)
         return 0;
@@ -1741,12 +1744,12 @@ read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs)
          of buf[i] into buf[n_saved] when it would be a NOP.  */
 
       size_t i;
-      for (i = 0; i < nr && !in_delete_set[(buf[i].c)]; i++)
+      for (i = 0; i < nr && !(is_in_spec_list(rule, buf[i].c) ^ complement); i++)
         continue;
       n_saved = i;
 
       for (++i; i < nr; i++)
-        if (!in_delete_set[(buf[i].c)])
+        if (!(is_in_spec_list(rule, buf[i].c) ^ complement))
           buf[n_saved++] = buf[i];
     }
   while (n_saved == 0);
@@ -1759,9 +1762,9 @@ read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs)
    array 'xlate'.  Return the number of characters read, or 0 upon EOF.  */
 
 static size_t
-read_and_xlate (grapheme *buf, size_t size, mbstate_t *mbs)
+read_and_xlate (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *rule_ignored, bool complement_ignored)
 {
-  size_t bytes_read = plain_read (buf, size, mbs);
+  size_t bytes_read = plain_read (buf, size, mbs, NULL, false);
 
   for (size_t i = 0; i < bytes_read; i++)
     {
@@ -1898,15 +1901,13 @@ main (int argc, char **argv)
 
   if (squeeze_repeats && non_option_args == 1)
     {
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, plain_read, s1, complement);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, plain_read, s1, complement, NULL, 0);
     }
   else if (delete && non_option_args == 1)
     {
-      set_initialize (s1, complement, in_delete_set);
-
       while (true)
         {
-          size_t nr = read_and_delete (io_buf, sizeof io_buf / sizeof(grapheme), &mbs);
+          size_t nr = read_and_delete (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, s1, complement);
           if (nr == 0)
             break;
           if (grfwrite (io_buf, nr, stdout) != nr)
@@ -1915,8 +1916,7 @@ main (int argc, char **argv)
     }
   else if (squeeze_repeats && delete && non_option_args == 2)
     {
-      set_initialize (s1, complement, in_delete_set);
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_delete, s2, false);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_delete, s2, false, s1, complement);
     }
   else if (translating)
     {
@@ -1990,13 +1990,13 @@ main (int argc, char **argv)
         }
       if (squeeze_repeats)
         {
-          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_xlate, s2, false);
+          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_xlate, s2, false, NULL, false);
         }
       else
         {
           while (true)
             {
-              size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf / sizeof(grapheme), &mbs);
+              size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, NULL, false);
               if (bytes_read == 0)
                 break;
               if (grfwrite (io_buf, bytes_read, stdout) != bytes_read)
