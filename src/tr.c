@@ -254,12 +254,6 @@ static wchar_t const *const char_class_name[] =
 };
 
 /* Array of boolean values.  A character 'c' is a member of the
-   squeeze set if and only if in_squeeze_set[c] is true.  The squeeze
-   set is defined by the last (possibly, the only) string argument
-   on the command line when the squeeze option is given.  */
-static bool in_squeeze_set[N_CHARS];
-
-/* Array of boolean values.  A character 'c' is a member of the
    delete set if and only if in_delete_set[c] is true.  The delete
    set is defined by the first (or only) string argument on the
    command line when the delete option is given.  */
@@ -498,7 +492,7 @@ unquote (wchar_t const *s, struct E_string *es)
                   oct_digit = s[i + 2] - L'0';
                   if (0 <= oct_digit && oct_digit <= 7)
                     {
-                      if (8 * c + oct_digit < N_CHARS)
+                      if (8 * c + oct_digit <= UCHAR_MAX)
                         {
                           c = 8 * c + oct_digit;
                           ++i;
@@ -1153,6 +1147,55 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
   return return_val;
 }
 
+static bool
+is_in (struct List_element *p, wchar_t c)
+{
+  switch (p->type)
+    {
+    case RE_NORMAL_CHAR:
+      return p->u.normal_char == c;
+
+    case RE_RANGE:
+      return c >= p->u.range.first_char && c <= p->u.range.last_char;
+
+    case RE_CHAR_CLASS:
+      return is_char_class_member (p->u.char_class, c);
+
+    case RE_EQUIV_CLASS:
+      /* FIXME: this assumes that each character is alone in its own
+         equivalence class (which appears to be correct for my
+         LC_COLLATE.  But I don't know of any function that allows
+         one to determine a character's equivalence class.  */
+
+      return p->u.equiv_code == c;
+
+    case RE_REPEATED_CHAR:
+      /* Here, a repeat count of n == 0 means don't repeat at all.  */
+      if (p->u.repeated_char.repeat_count == 0)
+        return false;
+      else
+        return p->u.repeated_char.the_repeated_char == c;
+
+    default:
+      abort ();
+    }
+}
+
+static bool
+is_in_spec_list (struct Spec_list *s, wchar_t c) {
+  s->tail = s->head->next;
+
+  while (s->tail != NULL)
+    {
+      if (is_in(s->tail, c))
+        return true;
+
+      s->tail = s->tail->next;
+    }
+
+  return false;
+}
+
 /* This is a minor kludge.  This function is called from
    get_spec_stats to determine the cardinality of a set derived
    from a complemented string.  It's a kludge in that some of the
@@ -1567,7 +1610,7 @@ grfwrite (grapheme *buf, size_t n, FILE *f)
    character is in the squeeze set.  */
 
 static void
-squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *))
+squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *), struct Spec_list *rules, bool complement)
 {
   /* A value distinct from any character that may have been stored in a
      buffer as the result of a block-read in the function squeeze_filter.  */
@@ -1603,13 +1646,13 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (gr
              of the input is removed by squeezing repeats.  But most
              uses of this functionality seem to remove less than 20-30%
              of the input.  */
-          for (; i < nr && !in_squeeze_set[buf[i].c]; i += 2)
+          for (; i < nr && !(is_in_spec_list(rules, buf[i].c) ^ complement); i += 2)
             continue;
 
           /* There is a special case when i == nr and we've just
              skipped a character (the last one in buf) that is in
              the squeeze set.  */
-          if (i == nr && in_squeeze_set[buf[i - 1].c])
+          if (i == nr && (is_in_spec_list(rules, buf[i - 1].c) ^ complement))
             --i;
 
           if (i >= nr)
@@ -1855,8 +1898,7 @@ main (int argc, char **argv)
 
   if (squeeze_repeats && non_option_args == 1)
     {
-      set_initialize (s1, complement, in_squeeze_set);
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, plain_read);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, plain_read, s1, complement);
     }
   else if (delete && non_option_args == 1)
     {
@@ -1874,8 +1916,7 @@ main (int argc, char **argv)
   else if (squeeze_repeats && delete && non_option_args == 2)
     {
       set_initialize (s1, complement, in_delete_set);
-      set_initialize (s2, false, in_squeeze_set);
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_delete);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_delete, s2, false);
     }
   else if (translating)
     {
@@ -1949,8 +1990,7 @@ main (int argc, char **argv)
         }
       if (squeeze_repeats)
         {
-          set_initialize (s2, false, in_squeeze_set);
-          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_xlate);
+          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_xlate, s2, false);
         }
       else
         {
