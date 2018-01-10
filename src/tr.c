@@ -253,12 +253,6 @@ static wchar_t const *const char_class_name[] =
   L"lower", L"print", L"punct", L"space", L"upper", L"xdigit"
 };
 
-/* Array of boolean values.  A character 'c' is a member of the
-   delete set if and only if in_delete_set[c] is true.  The delete
-   set is defined by the first (or only) string argument on the
-   command line when the delete option is given.  */
-static bool in_delete_set[N_CHARS];
-
 /* Array of character values defining the translation (if any) that
    tr is to perform.  Translation is performed only when there are
    two specification strings and the delete switch is not given.  */
@@ -1922,15 +1916,12 @@ main (int argc, char **argv)
     {
       if (complement)
         {
-          bool *in_s1 = in_delete_set;
-
-          set_initialize (s1, false, in_s1);
           s2->state = BEGIN_STATE;
           for (int i = 0; i < N_CHARS; i++)
             xlate[i] = i;
           for (int i = 0; i < N_CHARS; i++)
             {
-              if (!in_s1[i])
+              if (!is_in_spec_list(s1, i))
                 {
                   int ch = get_next (s2, NULL);
                   assert (ch != -1 || truncate_set1);
