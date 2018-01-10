@@ -1141,7 +1141,7 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
   return return_val;
 }
 
-static bool
+static bool _GL_ATTRIBUTE_PURE
 is_in (struct List_element *p, wchar_t c)
 {
   switch (p->type)
@@ -1607,7 +1607,7 @@ grfwrite (grapheme *buf, size_t n, FILE *f)
    character is in the squeeze set.  */
 
 static void
-squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *, struct Spec_list *, bool), struct Spec_list *rules, bool complement, struct Spec_list *read_rules, bool read_complement)
+squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *, struct Spec_list *, bool), struct Spec_list *rules, bool compl, struct Spec_list *read_rules, bool read_compl)
 {
   /* A value distinct from any character that may have been stored in a
      buffer as the result of a block-read in the function squeeze_filter.  */
@@ -1621,7 +1621,7 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (gr
     {
       if (i >= nr)
         {
-          nr = reader (buf, size, mbs, read_rules, read_complement);
+          nr = reader (buf, size, mbs, read_rules, read_compl);
           if (nr == 0)
             break;
           i = 0;
@@ -1643,13 +1643,13 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (gr
              of the input is removed by squeezing repeats.  But most
              uses of this functionality seem to remove less than 20-30%
              of the input.  */
-          for (; i < nr && !(is_in_spec_list(rules, buf[i].c) ^ complement); i += 2)
+          for (; i < nr && !(is_in_spec_list(rules, buf[i].c) ^ compl); i += 2)
             continue;
 
           /* There is a special case when i == nr and we've just
              skipped a character (the last one in buf) that is in
              the squeeze set.  */
-          if (i == nr && (is_in_spec_list(rules, buf[i - 1].c) ^ complement))
+          if (i == nr && (is_in_spec_list(rules, buf[i - 1].c) ^ compl))
             --i;
 
           if (i >= nr)
@@ -1718,7 +1718,7 @@ plain_read (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *ignore
    or 0 upon EOF.  */
 
 static size_t
-read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *rule, bool complement)
+read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *rule, bool compl)
 {
   size_t n_saved;
 
@@ -1738,12 +1738,12 @@ read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *r
          of buf[i] into buf[n_saved] when it would be a NOP.  */
 
       size_t i;
-      for (i = 0; i < nr && !(is_in_spec_list(rule, buf[i].c) ^ complement); i++)
+      for (i = 0; i < nr && !(is_in_spec_list(rule, buf[i].c) ^ compl); i++)
         continue;
       n_saved = i;
 
       for (++i; i < nr; i++)
-        if (!(is_in_spec_list(rule, buf[i].c) ^ complement))
+        if (!(is_in_spec_list(rule, buf[i].c) ^ compl))
           buf[n_saved++] = buf[i];
     }
   while (n_saved == 0);
@@ -1768,25 +1768,6 @@ read_and_xlate (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *ru
     }
 
   return bytes_read;
-}
-
-/* Initialize a boolean membership set, IN_SET, with the character
-   values obtained by traversing the linked list of constructs S
-   using the function 'get_next'.  IN_SET is expected to have been
-   initialized to all zeros by the caller.  If COMPLEMENT_THIS_SET
-   is true the resulting set is complemented.  */
-
-static void
-set_initialize (struct Spec_list *s, bool complement_this_set, bool *in_set)
-{
-  int c;
-
-  s->state = BEGIN_STATE;
-  while ((c = get_next (s, NULL)) != -1)
-    in_set[c] = true;
-  if (complement_this_set)
-    for (size_t i = 0; i < N_CHARS; i++)
-      in_set[i] = (!in_set[i]);
 }
 
 int
