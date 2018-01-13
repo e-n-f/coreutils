@@ -652,65 +652,35 @@ ISWDIGIT(wchar_t c)
 static inline int _GL_ATTRIBUTE_PURE
 wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbsa, mbstate_t *mbsb)
 {
-  grapheme ca, cb;
-  const char *aend = a + strlen(a);
-  const char *bend = b + strlen(b);
+  const char *aend = a + strlen (a);
+  const char *bend = b + strlen (b);
 
-  ca = grpeek (&a, aend, mbsa);
-  cb = grpeek (&b, bend, mbsb);
-
-  if (ca.c == decimal_point && cb.c == decimal_point)
+  if ((grpeek (&a, aend, mbsa).c) == decimal_point && (grpeek (&b, bend, mbsb)).c == decimal_point)
     {
-      while (1)
-        {
-          ca = grnext (&a, aend, mbsa);
-          cb = grnext (&b, bend, mbsb);
-
-          if (ca.c != cb.c)
-            break;
-
-          ca = grpeek (&a, aend, mbsa);
-          cb = grpeek (&b, bend, mbsb);
-
-          if (!ISWDIGIT (ca.c))
-            return 0;
-
-          if (ISWDIGIT (ca.c) && ISWDIGIT (ca.c))
-            return ca.c - cb.c;
-
-          if (ISWDIGIT (ca.c))
-            goto a_trailing_nonzero;
-          if (ISWDIGIT (cb.c))
-            goto b_trailing_nonzero;
-
+      while ((grafter (&a, aend, mbsa)).c == (grafter (&b, bend, mbsb)).c)
+        if (! ISWDIGIT ((grpeek (&a, aend, mbsa)).c))
           return 0;
-        }
+      if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c) && ISWDIGIT ((grpeek (&b, bend, mbsb)).c))
+        return (grpeek (&a, aend, mbsa)).c - (grpeek (&b, bend, mbsb)).c;
+      if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c))
+        goto a_trailing_nonzero;
+      if (ISWDIGIT ((grpeek (&b, bend, mbsb)).c))
+        goto b_trailing_nonzero;
+      return 0;
     }
-  else if (ca.c == decimal_point)
+  else if ((grnext (&a, aend, mbsa)).c == decimal_point)
     {
-      ca = grnext (&a, aend, mbsa);
     a_trailing_nonzero:
-      for (; (ca = grpeek (&a, aend, mbsa)).c != WEOF; ca = grnext (&a, aend, mbsa))
-        {
-          if (ca.c != WNUMERIC_ZERO)
-            break;
-        }
-
-      ca = grnext (&a, aend, mbsa);
-      return ISWDIGIT (ca.c);
+      while ((grpeek (&a, aend, mbsa)).c == WNUMERIC_ZERO)
+        grnext (&a, aend, mbsa);
+      return ISWDIGIT ((grpeek (&a, aend, mbsa)).c);
     }
-  else if (cb.c == decimal_point)
+  else if ((grnext (&b, bend, mbsb)).c == decimal_point)
     {
-      cb = grnext (&b, bend, mbsb);
     b_trailing_nonzero:
-      for (; (cb = grpeek (&b, bend, mbsb)).c != WEOF; cb = grnext (&b, bend, mbsb))
-        {
-          if (cb.c != WNUMERIC_ZERO)
-            break;
-        }
-
-      cb = grnext (&b, bend, mbsb);
-      return ISWDIGIT (cb.c);
+      while ((grpeek (&b, bend, mbsb)).c == WNUMERIC_ZERO)
+        grnext (&b, bend, mbsb);
+      return - ISWDIGIT ((grpeek (&b, bend, mbsb)).c);
     }
   return 0;
 }
