@@ -264,6 +264,7 @@ static struct option const long_options[] =
   {"delete", no_argument, NULL, 'd'},
   {"squeeze-repeats", no_argument, NULL, 's'},
   {"truncate-set1", no_argument, NULL, 't'},
+  {"-force-multibyte", no_argument, NULL, 'f'},
   {GETOPT_HELP_OPTION_DECL},
   {GETOPT_VERSION_OPTION_DECL},
   {NULL, 0, NULL, 0}
@@ -1789,7 +1790,7 @@ main (int argc, char **argv)
 
   atexit (close_stdout);
 
-  while ((c = getopt_long (argc, argv, "+cCdst", long_options, NULL)) != -1)
+  while ((c = getopt_long (argc, argv, "+cCdstf", long_options, NULL)) != -1)
     {
       switch (c)
         {
@@ -1808,6 +1809,9 @@ main (int argc, char **argv)
 
         case 't':
           truncate_set1 = true;
+          break;
+
+        case 'f':
           break;
 
         case_GETOPT_HELP_CHAR;
