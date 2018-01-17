@@ -23,6 +23,10 @@ use strict;
 # Turn off localization of executable's output.
 @ENV{qw(LANGUAGE LANG LC_ALL)} = ('C') x 3;
 
+my $locale = $ENV{LOCALE_FR_UTF8};
+! defined $locale || $locale eq 'none'
+  and $locale = 'C';
+
 my @Tests =
   (
    ['s1', '-w2 -s', {IN=>"a\t"}, {OUT=>"a\n\t"}],
@@ -30,6 +34,33 @@ my @Tests =
    ['s3', '-w4 -s', {IN=>"a cd fgh\n"}, {OUT=>"a \ncd \nfgh\n"}],
    ['s4', '-w4 -s', {IN=>"abc ef\n"}, {OUT=>"abc \nef\n"}],
   );
+
+
+# Repeat all tests with multibyte locale ('mbl-' prefix),
+# to ensure there are no rergessions.
+#
+# NOTE about the ERR_SUBST:
+# The error tests above (e1/e2/e3/e4) expect error messages in C locale
+# having single-quote character (ASCII 0x27).
+# In UTF-8 locale, the error messages will use:
+#  'LEFT SINGLE QUOTATION MARK'  (U+2018) (UTF8: 0xE2 0x80 0x98)
+#  'RIGHT SINGLE QUOTATION MARK' (U+2019) (UTF8: 0xE2 0x80 0x99)
+# So we replace them with ascii single-quote and the results will
+# match the expected error string.
+if ($locale ne 'C')
+  {
+    my @new;
+    foreach my $t (@Tests)
+      {
+        my ($tname, @tparams) = @$t;
+
+        push @new, [ "mbl-$tname", @tparams,
+                     {ENV => "LC_ALL=$locale"},
+                     {ERR_SUBST => "s/\xe2\x80[\x98\x99]/'/g"}];
+      }
+    push @Tests, @new;
+  }
+
 
 my $save_temps = $ENV{DEBUG};
 my $verbose = $ENV{VERBOSE};
