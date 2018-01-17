@@ -1021,7 +1021,7 @@ skip_construct (struct Spec_list *s)
    positions.  */
 
 static int
-get_next (struct Spec_list *s, enum Upper_Lower_class *class)
+get_next1 (struct Spec_list *s, enum Upper_Lower_class *class, bool classes_ok)
 {
   struct List_element *p;
   int return_val;
@@ -1062,6 +1062,12 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
       break;
 
     case RE_CHAR_CLASS:
+      if (!classes_ok)
+        {
+          die (EXIT_FAILURE, 0,
+               _("character classes not allowed in -c destination"));
+        }
+
       if (class)
         {
           switch (p->u.char_class)
@@ -1116,7 +1122,7 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
         {
           s->tail = p->next;
           s->state = NEW_ELEMENT;
-          return_val = get_next (s, class);
+          return_val = get_next1 (s, class, classes_ok);
         }
       else
         {
@@ -1139,6 +1145,18 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
     }
 
   return return_val;
+}
+
+static int
+get_next (struct Spec_list *s, enum Upper_Lower_class *class)
+{
+  return get_next1 (s, class, true);
+}
+
+static int
+get_next_no_classes (struct Spec_list *s, enum Upper_Lower_class *class)
+{
+  return get_next1 (s, class, false);
 }
 
 static bool _GL_ATTRIBUTE_PURE
@@ -1897,14 +1915,16 @@ main (int argc, char **argv)
     {
       if (complement)
         {
+          // The idea here is to find as many characters that are not in s1,
+          // in character set order, as there are characters in s2,
+          // and to map them to the corresponding s2 characters.
+
           s2->state = BEGIN_STATE;
-          for (int i = 0; i < N_CHARS; i++)
-            xlate[i] = i;
           for (int i = 0; i < N_CHARS; i++)
             {
               if (!is_in_spec_list(s1, i))
                 {
-                  int ch = get_next (s2, NULL);
+                  int ch = get_next_no_classes (s2, NULL);
                   assert (ch != -1 || truncate_set1);
                   if (ch == -1)
                     {
@@ -1912,7 +1932,8 @@ main (int argc, char **argv)
                          tr -cs A-Za-z0-9 '\012'.  */
                       break;
                     }
-                  xlate[i] = ch;
+                  printf("map %d to %d\n", i, ch);
+                  // setmap(i, ch);
                 }
             }
         }
