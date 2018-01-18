@@ -177,7 +177,7 @@ Print selected parts of lines from each FILE to standard output.\n\
   -f, --fields=LIST       select only these fields;  also print any line\n\
                             that contains no delimiter character, unless\n\
                             the -s option is specified\n\
-  -n                      (ignored)\n\
+  -n, --no-character-splitting  don't split characters with --bytes\n\
 "), stdout);
       fputs (_("\
       --complement        complement the set of selected bytes, characters\n\
