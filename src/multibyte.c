@@ -97,7 +97,7 @@ grafter(const char **s, const char *end, mbstate_t *state)
 /**** Binary-tolerant I/O */
 
 static grapheme
-fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
+fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
 {
   char tmp[MB_CUR_MAX];
   mbstate_t copy;
@@ -107,7 +107,10 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
 
   int b = getc(f);
   if (b == EOF)
-    return grapheme_wchar (WEOF);
+    {
+      *count = 0;
+      return grapheme_wchar (WEOF);
+    }
 
   tmp[0] = b;
   copy = *mbs;
@@ -117,6 +120,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
       if (peek)
         ungetc((unsigned char) b, f);
 
+      *count = 1;
       return grapheme_wchar (ch);
     }
 
@@ -132,11 +136,12 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
       tmp[i] = c;
     }
 
-  copy = *mbs;
   const char *s = tmp;
-
   grapheme c;
+
+  copy = *mbs;
   c = grnext(&s, s + i, &copy);
+  *count = s - tmp;
 
   if (peek)
     {
@@ -159,13 +164,21 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek)
 grapheme
 fgetgr(FILE *f, mbstate_t *mbs)
 {
-  return fgetgr_internal(f, mbs, false);
+  size_t count;
+  return fgetgr_internal(f, mbs, false, &count);
+}
+
+grapheme
+fgetgr_count(FILE *f, mbstate_t *mbs, size_t *count)
+{
+  return fgetgr_internal(f, mbs, false, count);
 }
 
 grapheme
 fpeekgr(FILE *f, mbstate_t *mbs)
 {
-  return fgetgr_internal(f, mbs, true);
+  size_t count;
+  return fgetgr_internal(f, mbs, true, &count);
 }
 
 grapheme

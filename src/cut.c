@@ -138,6 +138,7 @@ static struct option const longopts[] =
 {
   {"bytes", required_argument, NULL, 'b'},
   {"characters", required_argument, NULL, 'c'},
+  {"no-character-splitting", no_argument, NULL, 'n'},
   {"fields", required_argument, NULL, 'f'},
   {"delimiter", required_argument, NULL, 'd'},
   {"only-delimited", no_argument, NULL, 's'},
@@ -295,7 +296,7 @@ cut_bytes (FILE *stream)
 /* Read from stream STREAM, printing to standard output any selected characters.  */
 
 static void
-cut_characters (FILE *stream)
+cut_characters (FILE *stream, bool use_bytes)
 {
   size_t character_idx;	/* Number of bytes in the line so far. */
   /* Whether to begin printing delimiters between ranges for the current line.
@@ -310,8 +311,11 @@ cut_characters (FILE *stream)
   while (true)
     {
       grapheme c;		/* Each character from the file. */
+      size_t count;
 
-      c = fgetgr (stream, &mbs);
+      c = fgetgr_count (stream, &mbs, &count);
+      if (!use_bytes)
+        count = 1;
 
       if (c.c == line_delim_wchar)
         {
@@ -328,7 +332,8 @@ cut_characters (FILE *stream)
         }
       else
         {
-          next_item (&character_idx);
+          for (size_t i = 0; i < count; i++)
+            next_item (&character_idx);
           if (print_kth (character_idx))
             {
               if (output_delimiter_specified)
@@ -497,7 +502,9 @@ cut_stream (FILE *stream)
   if (operating_mode == byte_mode)
     cut_bytes (stream);
   else if (operating_mode == character_mode)
-    cut_characters (stream);
+    cut_characters (stream, false);
+  else if (operating_mode == character_byte_mode)
+    cut_characters (stream, true);
   else
     cut_fields (stream);
 }
@@ -551,6 +558,7 @@ main (int argc, char **argv)
   bool ok;
   bool delim_specified = false;
   char *spec_list_string IF_LINT ( = NULL);
+  bool nosplit = false;
 
   initialize_main (&argc, &argv);
   set_program_name (argv[0]);
@@ -637,7 +645,7 @@ main (int argc, char **argv)
           break;
 
         case 'n':
-          /* nosplit = true; */
+          nosplit = true;
           break;
 
         case 's':
@@ -662,11 +670,8 @@ main (int argc, char **argv)
         }
     }
 
-  /*
-  TODO:
   if (operating_mode == byte_mode && nosplit)
     operating_mode = character_byte_mode;
-  */
 
   if (operating_mode == undefined_mode)
     FATAL_ERROR (_("you must specify a list of bytes, characters, or fields"));
