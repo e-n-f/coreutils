@@ -5935,6 +5935,14 @@ Fields are separated by a TAB character by default.  Also print any
 line that contains no delimiter character, unless the
 @option{--only-delimited} (@option{-s}) option is specified.
 
+@item -n
+@itemx --no-character-splitting
+@opindex -n
+@opindex --no-character-splitting
+If @option{--bytes} is active, do not allow multibyte characters
+to be split. The position of the last byte in each multibyte character
+controls whether the entire character appears in the output.
+
 Note @command{awk} supports more sophisticated field processing,
 like reordering fields, and handling fields aligned with blank characters.
 By default @command{awk} uses (and discards) runs of blank characters

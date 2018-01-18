@@ -12,6 +12,7 @@ typedef struct grapheme {
 } grapheme;
 
 grapheme fgetgr(FILE *f, mbstate_t *mbs);
+grapheme fgetgr_count(FILE *f, mbstate_t *mbs, size_t *count);
 grapheme fputgr(grapheme c, FILE *f);
 grapheme putgrapheme(grapheme c);
 grapheme getgrapheme(mbstate_t *mbs);
