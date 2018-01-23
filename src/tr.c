@@ -1011,9 +1011,9 @@ skip_construct (struct Spec_list *s)
    of its members 'tail' and 'state'), return the next single character
    in the expansion of S's constructs.  If the last character of S was
    returned on the previous call or if S was empty, this function
-   returns -1.  For example, successive calls to get_next where S
+   returns WEOF.  For example, successive calls to get_next where S
    represents the spec-string 'a-d[y*3]' will return the sequence
-   of values a, b, c, d, y, y, y, -1.  Finally, if the construct from
+   of values a, b, c, d, y, y, y, WEOF.  Finally, if the construct from
    which the returned character comes is [:upper:] or [:lower:], the
    parameter CLASS is given a value to indicate which it was.  Otherwise
    CLASS is set to UL_NONE.  This value is used only when constructing
@@ -1021,11 +1021,11 @@ skip_construct (struct Spec_list *s)
    lower class constructs in the spec-strings appear in the same relative
    positions.  */
 
-static int
+static wint_t
 get_next (struct Spec_list *s, enum Upper_Lower_class *class)
 {
   struct List_element *p;
-  int return_val;
+  wint_t return_val;
   int i;
 
   if (class)
@@ -1039,7 +1039,7 @@ get_next (struct Spec_list *s, enum Upper_Lower_class *class)
 
   p = s->tail;
   if (p == NULL)
-    return -1;
+    return WEOF;
 
   switch (p->type)
     {
@@ -1202,12 +1202,12 @@ is_in_spec_list (struct Spec_list *s, wchar_t c) {
 static int
 card_of_complement (struct Spec_list *s)
 {
-  int c;
+  wint_t c;
   int cardinality = N_CHARS;
   bool in_set[N_CHARS] = { 0, };
 
   s->state = BEGIN_STATE;
-  while ((c = get_next (s, NULL)) != -1)
+  while ((c = get_next (s, NULL)) != WEOF)
     {
       cardinality -= (!in_set[c]);
       in_set[c] = true;
@@ -1229,8 +1229,8 @@ validate_case_classes (struct Spec_list *s1, struct Spec_list *s2)
 {
   size_t n_upper = 0;
   size_t n_lower = 0;
-  int c1 = 0;
-  int c2 = 0;
+  wint_t c1 = 0;
+  wint_t c2 = 0;
   count old_s1_len = s1->length;
   count old_s2_len = s2->length;
   struct List_element *s1_tail = s1->tail;
@@ -1252,7 +1252,7 @@ validate_case_classes (struct Spec_list *s1, struct Spec_list *s2)
   s1->state = BEGIN_STATE;
   s2->state = BEGIN_STATE;
 
-  while (c1 != -1 && c2 != -1)
+  while (c1 != WEOF && c2 != WEOF)
     {
       enum Upper_Lower_class class_s1, class_s2;
 
@@ -1488,14 +1488,14 @@ string2_extend (const struct Spec_list *s1, struct Spec_list *s2)
 static bool
 homogeneous_spec_list (struct Spec_list *s)
 {
-  int b, c;
+  wint_t b, c;
 
   s->state = BEGIN_STATE;
 
-  if ((b = get_next (s, NULL)) == -1)
+  if ((b = get_next (s, NULL)) == WEOF)
     return false;
 
-  while ((c = get_next (s, NULL)) != -1)
+  while ((c = get_next (s, NULL)) != WEOF)
     if (c != b)
       return false;
 
@@ -1908,9 +1908,9 @@ main (int argc, char **argv)
             {
               if (!is_in_spec_list(s1, i))
                 {
-                  int ch = get_next (s2, NULL);
-                  assert (ch != -1 || truncate_set1);
-                  if (ch == -1)
+                  wint_t ch = get_next (s2, NULL);
+                  assert (ch != WEOF || truncate_set1);
+                  if (ch == WEOF)
                     {
                       /* This will happen when tr is invoked like e.g.
                          tr -cs A-Za-z0-9 '\012'.  */
@@ -1922,7 +1922,7 @@ main (int argc, char **argv)
         }
       else
         {
-          int c1, c2;
+          wint_t c1, c2;
           enum Upper_Lower_class class_s1;
           enum Upper_Lower_class class_s2;
 
@@ -1950,7 +1950,7 @@ main (int argc, char **argv)
               else
                 {
                   /* The following should have been checked by validate...  */
-                  if (c1 == -1 || c2 == -1)
+                  if (c1 == WEOF || c2 == WEOF)
                     break;
                   xlate[c1] = c2;
                 }
@@ -1962,7 +1962,7 @@ main (int argc, char **argv)
                   skip_construct (s2);
                 }
             }
-          assert (c1 == -1 || truncate_set1);
+          assert (c1 == WEOF || truncate_set1);
         }
       if (squeeze_repeats)
         {
