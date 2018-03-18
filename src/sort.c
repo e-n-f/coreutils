@@ -56,7 +56,8 @@
 #include "memcoll.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
-#include "multibyte.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #ifndef RLIMIT_DATA
 struct rlimit { size_t rlim_cur; };

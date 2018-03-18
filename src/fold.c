@@ -29,7 +29,8 @@
 #include "error.h"
 #include "fadvise.h"
 #include "xdectoint.h"
-#include "multibyte.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #define TAB_WIDTH 8
 

@@ -36,7 +36,8 @@
 #include "xstrtol.h"
 #include "memcasecmp.h"
 #include "quote.h"
-#include "multibyte.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "uniq"

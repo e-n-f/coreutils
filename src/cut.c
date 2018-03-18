@@ -38,7 +38,8 @@
 #include "hash.h"
 #include "xstrndup.h"
 #include "xalloc.h"
-#include "multibyte.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #include "set-fields.h"
 

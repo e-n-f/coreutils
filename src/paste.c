@@ -46,7 +46,8 @@
 #include "die.h"
 #include "error.h"
 #include "fadvise.h"
-#include "multibyte.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "paste"

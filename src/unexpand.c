@@ -42,7 +42,8 @@
 #include "system.h"
 #include "die.h"
 #include "xstrndup.h"
-#include "multibyte.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #include "expand-common.h"
 

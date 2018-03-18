@@ -13,242 +13,12 @@
 #define _(msgid) gettext (msgid)
 
 #include "xalloc.h"
-#include "multibyte.h"
+#include "grapheme.h"
+#include "widetext.h"
 #include "error.h"
 #include "exitfail.h"
 #include "quotearg.h"
 #include "quote.h"
-
-grapheme
-grnext (const char **s, const char *end, mbstate_t *mbs)
-{
-  // No bytes remained, so this is EOF
-
-  if (*s == NULL || *s >= end)
-    return grapheme_wchar (WEOF);
-
-  wchar_t c;
-  mbstate_t mbs_copy = *mbs;
-  size_t n = mbrtowc(&c, *s, end - *s, &mbs_copy);
-
-  if (n == 0)
-    {
-      // NUL wide character. There is no information about how many
-      // bytes from the source text it took to produce this NUL,
-      // so try again with more and more bytes until it works.
-
-      size_t j;
-      for (j = 1; j <= end - *s; j++)
-        {
-          mbs_copy = *mbs;
-          if (mbrtowc(&c, *s, end - *s, &mbs_copy) == 0)
-            break;
-        }
-
-      // If j > end - *s, then the decoding isn't reproducible and something
-      // is wrong. But still keep inside the array bounds;
-      if (j > end - *s)
-        j = end - *s;
-
-      *s += j;
-      *mbs = mbs_copy;
-
-      return grapheme_wchar (L'\0');
-    }
-  else if (n == (size_t) -1 || n == (size_t) -2)
-    {
-      // Decoding error. -2 (incomplete character) shouldn't be possible
-      // unless the file was truncated. Return the first byte as a byte.
-      // Leave the decoding state however it was, since nothing was
-      // decoded.
-
-      grapheme ret = grapheme_byte (**s);
-
-      (*s)++;
-      return ret;
-    }
-  else
-    {
-      // Legitimate wide character.  Put as many bytes as were not used back
-      // into the stream, and return the character.
-
-      (*s) += n;
-      *mbs = mbs_copy;
-
-      return grapheme_wchar (c);
-    }
-}
-
-grapheme
-grpeek (const char **s, const char *end, mbstate_t *mbs)
-{
-  const char *tmps = *s;
-  mbstate_t tmpmbs = *mbs;
-  return grnext(&tmps, end, &tmpmbs);
-}
-
-grapheme
-grafter(const char **s, const char *end, mbstate_t *state)
-{
-  grnext(s, end, state);
-  return grpeek(s, end, state);
-}
-
-/**** Binary-tolerant I/O */
-
-static grapheme
-fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
-{
-  char tmp[MB_CUR_MAX];
-  mbstate_t copy;
-
-  // Special case for the common case of a valid character
-  // from just one byte.
-
-  int b = getc(f);
-  if (b == EOF)
-    {
-      *count = 0;
-      return grapheme_wchar (WEOF);
-    }
-
-  tmp[0] = b;
-  copy = *mbs;
-  wchar_t ch;
-  if (mbrtowc(&ch, tmp, 1, &copy) == 1)
-    {
-      if (peek)
-        ungetc((unsigned char) b, f);
-
-      *count = 1;
-      return grapheme_wchar (ch);
-    }
-
-  // May need to read as many as MB_CUR_MAX bytes ahead to get
-  // one complete multibyte character.
-
-  size_t i;
-  for (i = 1; i < MB_CUR_MAX; i++)
-    {
-      int c = getc(f);
-      if (c == EOF)
-        break;
-      tmp[i] = c;
-    }
-
-  const char *s = tmp;
-  grapheme c;
-
-  copy = *mbs;
-  c = grnext(&s, s + i, &copy);
-  *count = s - tmp;
-
-  if (peek)
-    {
-      // Put everything back
-      for (size_t k = i; k > 0; k--)
-        ungetc((unsigned char) tmp[k - 1], f);
-    }
-  else
-    {
-      // Put unused bytes back
-      for (size_t k = i; k > s - tmp; k--)
-        ungetc((unsigned char) tmp[k - 1], f);
-
-      *mbs = copy;
-    }
-
-  return c;
-}
-
-grapheme
-fgetgr(FILE *f, mbstate_t *mbs)
-{
-  size_t count;
-  return fgetgr_internal(f, mbs, false, &count);
-}
-
-grapheme
-fgetgr_count(FILE *f, mbstate_t *mbs, size_t *count)
-{
-  return fgetgr_internal(f, mbs, false, count);
-}
-
-grapheme
-fpeekgr(FILE *f, mbstate_t *mbs)
-{
-  size_t count;
-  return fgetgr_internal(f, mbs, true, &count);
-}
-
-grapheme
-fputgr(grapheme c, FILE *f)
-{
-  if (c.isbyte)
-    {
-      int ret = putc((unsigned char) c.c, f);
-      if (ret == EOF)
-        return grapheme_wchar (WEOF);
-
-      return c;
-    }
-  else
-    {
-      // TODO: Deal with different encoding states
-
-      char tmp[MB_CUR_MAX];
-      int n = wctomb(tmp, c.c);
-
-      if (n < 0)
-        {
-          if (c.c <= UCHAR_MAX)
-            {
-              // This must be a byte in the C locale,
-              // where 0x80-0xFF are sometimes not
-              // regarded as characters.
-
-              int ret = putc(c.c, f);
-              if (ret == EOF)
-                  c.c = WEOF;
-              return c;
-            }
-          else
-            {
-              c.c = WEOF;
-              return c;
-            }
-        }
-
-      for (size_t i = 0; i < n; i++)
-        {
-          int ret = putc(tmp[i], f);
-          if (ret == EOF)
-            {
-              c.c = WEOF;
-              return c;
-            }
-        }
-
-      return c;
-    }
-}
-
-wchar_t fputwcgr (wchar_t c, FILE *f)
-{
-  return fputgr(grapheme_wchar (c), f).c;
-}
-
-grapheme
-putgrapheme(grapheme c)
-{
-  return fputgr(c, stdout);
-}
-
-grapheme
-getgrapheme(mbstate_t *mbs)
-{
-  return fgetgr(stdin, mbs);
-}
 
 /**** Wide version of linebuffer.c */
 
@@ -273,7 +43,7 @@ initgrbuffer (struct grlinebuffer *linebuffer)
 
 struct grlinebuffer *
 readgrlinebuffer_delim (struct grlinebuffer *linebuffer, FILE *stream,
-                       wchar_t delimiter, mbstate_t *mbs)
+                        wchar_t delimiter, mbstate_t *mbs)
 {
   grapheme c;
   grapheme *buffer = linebuffer->buffer;
@@ -385,8 +155,8 @@ wmemcoll (wchar_t *s1, size_t s1len, wchar_t *s2, size_t s2len)
 
 static void
 wcollate_error (int collation_errno,
-               wchar_t const *s1, size_t s1len,
-               wchar_t const *s2, size_t s2len)
+                wchar_t const *s1, size_t s1len,
+                wchar_t const *s2, size_t s2len)
 {
   error (0, collation_errno, _("string comparison failed"));
   error (0, 0, _("Set LC_ALL='C' to work around the problem."));
@@ -513,7 +283,7 @@ xwcsndup (const wchar_t *string, size_t n)
 
 ssize_t
 grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
-            wchar_t delim1, wchar_t delim2, FILE *stream, mbstate_t *mbs)
+              wchar_t delim1, wchar_t delim2, FILE *stream, mbstate_t *mbs)
 {
   size_t nbytes_avail;          /* Allocated but unused bytes in *LINEPTR.  */
   grapheme *read_pos;               /* Where we're reading into *LINEPTR. */
@@ -700,7 +470,7 @@ wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbs
 
 static inline int _GL_ATTRIBUTE_PURE
 wnumcompare (char const *a, char const *b,
-            wint_t decimal_point, wint_t thousands_sep)
+             wint_t decimal_point, wint_t thousands_sep)
 {
   int tmp;
   size_t log_a;
@@ -839,24 +609,11 @@ wnumcompare (char const *a, char const *b,
 
 int _GL_ATTRIBUTE_PURE
 wstrnumcmp (char const *a, char const *b,
-           wint_t decimal_point, wint_t thousands_sep)
+            wint_t decimal_point, wint_t thousands_sep)
 {
   return wnumcompare (a, b, decimal_point, thousands_sep);
 }
 
-
-/**** CB/Wide version of memchr */
-
-grapheme * _GL_ATTRIBUTE_PURE
-grmemchr(grapheme *haystack, wchar_t needle, size_t n)
-{
-  for (size_t i = 0; i < n; i++) {
-    if (haystack[i].c == needle) {
-      return haystack + i;
-    }
-  }
-  return NULL;
-}
 
 static int charwidth_cache[UCHAR_MAX] = { 0 };
 
@@ -885,54 +642,4 @@ int charwidth (wchar_t c)
     return 0;
   else
     return 1; // unknown, so probably from the future of Unicode
-}
-
-size_t _GL_ATTRIBUTE_PURE
-grslen (const grapheme *s)
-{
-  size_t i = 0;
-  while (s[i].c != L'\0')
-    i++;
-  return i;
-}
-
-grapheme *
-grsdup (const grapheme *s)
-{
-  size_t n = grslen(s);
-  grapheme *out = xmalloc((n + 1) * sizeof(grapheme));
-  memcpy(out, s, (n + 1) * sizeof(grapheme));
-  return out;
-}
-
-grapheme
-grapheme_wchar (wchar_t c)
-{
-  grapheme g;
-  g.c = c;
-  g.isbyte = false;
-  return g;
-}
-
-grapheme
-grapheme_byte (unsigned char c)
-{
-  grapheme g;
-  g.c = c;
-  g.isbyte = true;
-  return g;
-}
-
-void
-mbstogrs(grapheme *out, const char *in)
-{
-  const char *end = in + strlen(in);
-  mbstate_t mbs = { 0 };
-  grapheme g;
-  size_t n = 0;
-
-  while ((g = grnext(&in, end, &mbs)).c != WEOF)
-    out[n++] = g;
-
-  out[n] = grapheme_wchar (L'\0');
 }

@@ -383,16 +383,17 @@ src_stat_SOURCES = src/stat.c src/find-mount-point.c
 src_uname_SOURCES = src/uname.c src/uname-uname.c
 src_arch_SOURCES = src/uname.c src/uname-arch.c
 
-src_cut_SOURCES = src/cut.c src/set-fields.c src/multibyte.c
-src_paste_SOURCES = src/paste.c src/multibyte.c
-src_pr_SOURCES = src/pr.c src/multibyte.c
-src_join_SOURCES = src/join.c src/multibyte.c
-src_tr_SOURCES = src/tr.c src/multibyte.c
-src_sort_SOURCES = src/sort.c src/multibyte.c
+src_cut_SOURCES = src/cut.c src/set-fields.c src/grapheme.c src/widetext.c
+src_paste_SOURCES = src/paste.c src/grapheme.c src/widetext.c
+src_pr_SOURCES = src/pr.c src/grapheme.c src/widetext.c
+src_join_SOURCES = src/join.c src/grapheme.c src/widetext.c
+src_tr_SOURCES = src/tr.c src/grapheme.c src/widetext.c
+src_sort_SOURCES = src/sort.c src/grapheme.c src/widetext.c
+src_fmt_SOURCES = src/fmt.c src/grapheme.c src/widetext.c
+src_fold_SOURCES = src/fold.c src/grapheme.c src/widetext.c
+src_uniq_SOURCES = src/uniq.c src/grapheme.c src/widetext.c
 
 src_numfmt_SOURCES = src/numfmt.c src/set-fields.c
-src_fmt_SOURCES = src/fmt.c src/multibyte.c
-src_fold_SOURCES = src/fold.c src/multibyte.c
 
 src_md5sum_CPPFLAGS = -DHASH_ALGO_MD5=1 $(AM_CPPFLAGS)
 src_sha1sum_SOURCES = src/md5sum.c
@@ -424,9 +425,8 @@ src_base32_CPPFLAGS = -DBASE_TYPE=32 $(AM_CPPFLAGS)
 
 src_ginstall_CPPFLAGS = -DENABLE_MATCHPATHCON=1 $(AM_CPPFLAGS)
 
-src_expand_SOURCES = src/expand.c src/expand-common.c src/multibyte.c
-src_unexpand_SOURCES = src/unexpand.c src/expand-common.c src/multibyte.c
-src_uniq_SOURCES = src/uniq.c src/multibyte.c
+src_expand_SOURCES = src/expand.c src/expand-common.c src/grapheme.c src/widetext.c
+src_unexpand_SOURCES = src/unexpand.c src/expand-common.c src/grapheme.c src/widetext.c
 
 # Ensure we don't link against libcoreutils.a as that lib is
 # not compiled with -fPIC which causes issues on 64 bit at least
