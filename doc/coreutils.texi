@@ -5976,7 +5976,7 @@ the input fields separator (default is TAB).
 
 @item -n
 @opindex -n
-Do not split multi-byte characters when using @option{-b} (no-op for now).
+Do not split multi-byte characters when using @option{-b}.
 
 @item -s
 @itemx --only-delimited
@@ -6683,7 +6683,8 @@ whereas @option{-c} will cause it to complement the set of values.
 This distinction will matter only when some values are not characters,
 and this is possible only in locales using multibyte encodings when
 the input contains encoding errors. As it is now,
-@command{tr} rejects invalid character encodings, and
+@command{tr} treats bytes that are not part of characters as if they
+were characters themselves, and
 @option{-C} and @option{-c} do the same thing.
 
 The program accepts the @option{--help} and @option{--version}
