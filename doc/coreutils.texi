@@ -4094,6 +4094,12 @@ purposes.  If the final byte of an input file is not a newline, GNU
 specified for all GNU utilities) has no limit on input line length or
 restrictions on bytes allowed within lines.
 
+Note that older versions of GNU @command{sort} did not support
+multibyte field separators (@option{--field-separator}) or case folding
+(@option{--ignore-case}) of multibyte characters,
+and positions within sort keys (@option{--key}) referred to bytes rather
+than to characters. These features now operate on characters instead of bytes.
+
 @command{sort} has three modes of operation: sort (the default), merge,
 and check for sortedness.  The following options change the operation
 mode:
@@ -4945,6 +4951,13 @@ duplicate lines, perhaps you want to use @code{sort -u}.
 @vindex LC_COLLATE
 Comparisons honor the rules specified by the @env{LC_COLLATE}
 locale category.
+
+Note that in older versions of GNU @command{uniq}, case-insensitive
+comparisons (@option{--ignore-case}) did not work on multibyte characters,
+and the options to skip (@option{--skip-chars}) or compare
+(@option{--check-chars}) a specified number of characters actually skipped
+or compared that number of bytes. These functions now operate upon
+characters, not bytes.
 
 If no @var{output} file is specified, @command{uniq} writes to standard
 output.
@@ -5899,6 +5912,14 @@ can be repeated, can overlap, and can be specified in any order; but
 the selected input is written in the same order that it is read, and
 is written exactly once.
 
+Note that in older versions of GNU @command{cut}, cutting a specified
+number of characters with @option{--characters} actually cut that number
+of bytes, the @option{--no-character-splitting} option was not
+available to avoid cutting apart characters when cutting bytes,
+and the options to specify field delimiters (@option{--delimiter}
+and @option{--output-delimiter}) specified bytes, not characters.
+These functions now operate upon characters, not bytes.
+
 The program accepts the following options.  Also see @ref{Common
 options}.
 
@@ -6143,6 +6164,11 @@ e 5 Y
 @end group
 @end example
 
+Note that in older versions of GNU @command{join}, case-insensitive
+comparisons (@option{--ignore-case}) did not work on multibyte characters,
+and the field separator (@option{-t}) was required to be a byte, not
+a character.  These functions now operate upon
+characters, not bytes.
 
 @noindent
 @command{join}'s default behavior (when no options are given):
