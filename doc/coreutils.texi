@@ -6717,6 +6717,11 @@ the input contains encoding errors. As it is now,
 were characters themselves, and
 @option{-C} and @option{-c} do the same thing.
 
+Note that older versions of GNU @command{tr} transliterated bytes,
+not characters, so multibyte characters spelled out as sets could
+not be transliterated, and character class mappings did not work
+for multibyte characters. It now operates on characters, not bytes.
+
 The program accepts the @option{--help} and @option{--version}
 options.  @xref{Common options}.  Options must precede operands.
 
