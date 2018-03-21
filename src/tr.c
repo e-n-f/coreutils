@@ -30,7 +30,6 @@
 #include "error.h"
 #include "fadvise.h"
 #include "quote.h"
-#include "safe-read.h"
 #include "xbinary-io.h"
 #include "xstrtol.h"
 #include "grapheme.h"

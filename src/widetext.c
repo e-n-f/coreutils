@@ -16,8 +16,6 @@
 #include "grapheme.h"
 #include "widetext.h"
 #include "error.h"
-#include "exitfail.h"
-#include "quotearg.h"
 #include "quote.h"
 
 /**** Wide version of linebuffer.c */
@@ -159,10 +157,10 @@ wcollate_error (int collation_errno,
                 wchar_t const *s2, size_t s2len)
 {
   error (0, collation_errno, _("string comparison failed"));
-  error (0, 0, _("Set LC_ALL='C' to work around the problem."));
+  error (0, 0, _("set LC_ALL='C' to work around the problem"));
   // TODO: quote
-  error (exit_failure, 0,
-         _("The strings compared were %ls and %ls."), s1, s2);
+  error (EXIT_FAILURE, 0,
+         _("the strings compared were %ls and %ls"), s1, s2);
 }
 
 /* Compare S1 (with length S1LEN) and S2 (with length S2LEN) according

@@ -37,7 +37,6 @@
 #include "getndelim2.h"
 #include "hash.h"
 #include "xstrndup.h"
-#include "xalloc.h"
 #include "grapheme.h"
 #include "widetext.h"
 

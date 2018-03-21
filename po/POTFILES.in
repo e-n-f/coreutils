@@ -143,4 +143,5 @@ src/users.c
 src/wc.c
 src/who.c
 src/whoami.c
+src/widetext.c
 src/yes.c

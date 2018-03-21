@@ -25,7 +25,6 @@
 #include "die.h"
 #include "error.h"
 #include "fadvise.h"
-#include "quote.h"
 #include "xstrndup.h"
 #include "grapheme.h"
 #include "widetext.h"

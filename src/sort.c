@@ -1324,7 +1324,7 @@ inittables (void)
           s = nl_langinfo (ABMON_1 + i);
           wchar_t tmp[strlen(s) + 1];
           if (mbstowcs(tmp, s, strlen(s) + 1) == (size_t) -1)
-            error (0, errno, _("invalid month name %s"), s);
+            error (0, errno, _("invalid month name %s"), quote (s));
 
           size_t out = 0;
           for (size_t j = 0; tmp[j] != L'\0'; j++)
@@ -1688,7 +1688,7 @@ begfield (struct line const *line, struct keyfield const *key)
     }
 
   if (!mbsinit(&mbs))
-    error (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
+    die (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
 
   // TODO: work out const issues
   return (char *) ptr;
@@ -1820,7 +1820,7 @@ limfield (struct line const *line, struct keyfield const *key)
     }
 
   if (!mbsinit(&mbs))
-    error (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at end of field"));
+    die (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at end of field"));
 
   // TODO: work out const issues
   return (char *) ptr;
@@ -1925,7 +1925,7 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
                             }
 
                           if (!mbsinit(&mbs))
-                            error (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
+                            die (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
                         }
                       // TODO: Figure out const
                       line->keybeg = (char *) line_start;
@@ -2774,6 +2774,7 @@ keycompare (struct line const *a, struct line const *b)
           char enda IF_LINT (= 0);
           char endb IF_LINT (= 0);
           void *allocated = NULL;
+          bool did_allocate = false;
           char stackbuf[4000];
 
           if (ignore || translate)
@@ -2792,7 +2793,10 @@ keycompare (struct line const *a, struct line const *b)
               if (size <= sizeof stackbuf)
                 ta = stackbuf, allocated = NULL;
               else
-                ta = allocated = xmalloc (size);
+                {
+                  ta = allocated = xmalloc (size);
+                  did_allocate = true;
+                }
               tb = ta + (lena + 1) * MB_CUR_MAX;
 
               /* Put into each copy a version of the key in which the
@@ -2898,7 +2902,7 @@ keycompare (struct line const *a, struct line const *b)
                 diff = xtrymemcoll0 (ta, tlena + 1, tb, tlenb + 1);
             }
 
-          if (allocated != NULL)
+          if (did_allocate)
             free (allocated);
           else
             {

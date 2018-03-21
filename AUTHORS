@@ -17,7 +17,7 @@ comm: Richard M. Stallman, David MacKenzie
 coreutils: Alex Deymo
 cp: Torbjorn Granlund, David MacKenzie, Jim Meyering
 csplit: Stuart Kemp, David MacKenzie
-cut: David M. Ihnat, David MacKenzie, Jim Meyering
+cut: David M. Ihnat, David MacKenzie, Jim Meyering, Eric Fischer
 date: David MacKenzie
 dd: Paul Rubin, David MacKenzie, Stuart Kemp
 df: Torbjorn Granlund, David MacKenzie, Paul Eggert
@@ -27,19 +27,19 @@ dirname: David MacKenzie, Jim Meyering
 du: Torbjorn Granlund, David MacKenzie, Paul Eggert, Jim Meyering
 echo: Brian Fox, Chet Ramey
 env: Richard Mlynarik, David MacKenzie
-expand: David MacKenzie
+expand: David MacKenzie, Eric Fischer
 expr: Mike Parker, James Youngman, Paul Eggert
 factor: Paul Rubin, Torbjörn Granlund, Niels Möller
 false: Jim Meyering
-fmt: Ross Paterson
-fold: David MacKenzie
+fmt: Ross Paterson, Eric Fischer
+fold: David MacKenzie, Eric Fischer
 ginstall: David MacKenzie
 groups: David MacKenzie, James Youngman
 head: David MacKenzie, Jim Meyering
 hostid: Jim Meyering
 hostname: Jim Meyering
 id: Arnold Robbins, David MacKenzie
-join: Mike Haertel
+join: Mike Haertel, Eric Fischer
 kill: Paul Eggert
 link: Michael Stone
 ln: Mike Parker, David MacKenzie
@@ -57,10 +57,10 @@ nohup: Jim Meyering
 nproc: Giuseppe Scrivano
 numfmt: Assaf Gordon
 od: Jim Meyering
-paste: David M. Ihnat, David MacKenzie
+paste: David M. Ihnat, David MacKenzie, Eric Fischer
 pathchk: Paul Eggert, David MacKenzie, Jim Meyering
 pinky: Joseph Arceneaux, David MacKenzie, Kaveh Ghazi
-pr: Pete TerMaat, Roland Huebner
+pr: Pete TerMaat, Roland Huebner, Eric Fischer
 printenv: David MacKenzie, Richard Mlynarik
 printf: David MacKenzie
 ptx: François Pinard
@@ -79,7 +79,7 @@ sha512sum: Ulrich Drepper, Scott Miller, David Madore
 shred: Colin Plumb
 shuf: Paul Eggert
 sleep: Jim Meyering, Paul Eggert
-sort: Mike Haertel, Paul Eggert
+sort: Mike Haertel, Paul Eggert, Eric Fischer
 split: Torbjorn Granlund, Richard M. Stallman
 stat: Michael Meskes
 stdbuf: Padraig Brady
@@ -92,14 +92,14 @@ tee: Mike Parker, Richard M. Stallman, David MacKenzie
 test: Kevin Braunsdorf, Matthew Bradburn
 timeout: Padraig Brady
 touch: Paul Rubin, Arnold Robbins, Jim Kingdon, David MacKenzie, Randy Smith
-tr: Jim Meyering
+tr: Jim Meyering, Eric Fischer
 true: Jim Meyering
 truncate: Padraig Brady
 tsort: Mark Kettenis
 tty: David MacKenzie
 uname: David MacKenzie
-unexpand: David MacKenzie
-uniq: Richard M. Stallman, David MacKenzie
+unexpand: David MacKenzie, Eric Fischer
+uniq: Richard M. Stallman, David MacKenzie, Eric Fischer
 unlink: Michael Stone
 uptime: Joseph Arceneaux, David MacKenzie, Kaveh Ghazi
 users: Joseph Arceneaux, David MacKenzie
