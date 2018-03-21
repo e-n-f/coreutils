@@ -143,7 +143,7 @@ parse_tab_stops_wc (wchar_t const *stops)
 
   for (; *stops; stops++)
     {
-      if (*stops == ',' || iswblank (*stops))
+      if (*stops == L',' || iswblank (*stops))
         {
           if (have_tabval)
             {
@@ -168,7 +168,7 @@ parse_tab_stops_wc (wchar_t const *stops)
             }
           have_tabval = false;
         }
-      else if (*stops == '/')
+      else if (*stops == L'/')
         {
           if (have_tabval)
             {
@@ -179,7 +179,7 @@ parse_tab_stops_wc (wchar_t const *stops)
           extend_tabval = true;
           increment_tabval = false;
         }
-      else if (*stops == '+')
+      else if (*stops == L'+')
         {
           if (have_tabval)
             {
@@ -190,7 +190,7 @@ parse_tab_stops_wc (wchar_t const *stops)
           increment_tabval = true;
           extend_tabval = false;
         }
-      else if (ISDIGIT (*stops))
+      else if (ISWDIGIT (*stops))
         {
           if (!have_tabval)
             {
@@ -200,7 +200,7 @@ parse_tab_stops_wc (wchar_t const *stops)
             }
 
           /* Detect overflow.  */
-          if (!DECIMAL_DIGIT_ACCUMULATE (tabval, *stops - '0', uintmax_t))
+          if (!DECIMAL_DIGIT_ACCUMULATE (tabval, *stops - L'0', uintmax_t))
             {
               size_t len = wcsspn (num_start, L"0123456789");
               wchar_t *bad_num = xwcsndup (num_start, len);

@@ -64,6 +64,8 @@ wfield_sep (wchar_t ch)
 
 #define WSTREQ_LEN(a, b, n) (wcsncmp (a, b, n) == 0)
 
+bool ISWDIGIT(wchar_t c);
+
 int wstrnumcmp (char const *, char const *, wint_t, wint_t);
 
 int charwidth (wchar_t c);
