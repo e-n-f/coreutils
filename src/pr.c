@@ -1927,7 +1927,8 @@ init_store_cols (void)
   end_vector = xnmalloc (total_lines, sizeof *end_vector);
 
   free (buff);
-  buff = xnmalloc (chars_if_truncate, (use_col_separator + 1) * sizeof(grapheme));
+  buff = xnmalloc (chars_if_truncate,
+                   (use_col_separator + 1) * sizeof(grapheme));
   buff_allocated = chars_if_truncate;  /* Tune this. */
   buff_allocated *= use_col_separator + 1;
 }

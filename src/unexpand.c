@@ -212,7 +212,9 @@ unexpand (void)
                               if (pending >= pending_blank_size)
                                 {
                                   pending_blank_size *= 2;
-                                  xrealloc (pending_blank, pending_blank_size * sizeof(grapheme));
+                                  xrealloc (pending_blank,
+                                            pending_blank_size *
+                                            sizeof(grapheme));
                                 }
                               pending_blank[pending++] = c;
                               prev_blank = true;

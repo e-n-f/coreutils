@@ -34,6 +34,7 @@
 #include "widetext.h"
 #include "error.h"
 #include "quote.h"
+#include "die.h"
 
 /**** Wide version of linebuffer.c */
 
@@ -104,7 +105,8 @@ readgrlinebuffer_delim (struct grlinebuffer *linebuffer, FILE *stream,
    otherwise.  */
 
 static int
-wcscoll_loop (wchar_t const *s1, size_t s1size, wchar_t const *s2, size_t s2size)
+wcscoll_loop (wchar_t const *s1, size_t s1size, wchar_t const *s2,
+              size_t s2size)
 {
   int diff;
 
@@ -176,7 +178,7 @@ wcollate_error (int collation_errno,
   error (0, collation_errno, _("string comparison failed"));
   error (0, 0, _("set LC_ALL='C' to work around the problem"));
   // TODO: quote
-  error (EXIT_FAILURE, 0,
+  die (EXIT_FAILURE, 0,
          _("the strings compared were %ls and %ls"), s1, s2);
 }
 
@@ -453,12 +455,14 @@ wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbs
   const char *aend = a + strlen (a);
   const char *bend = b + strlen (b);
 
-  if ((grpeek (&a, aend, mbsa).c) == decimal_point && (grpeek (&b, bend, mbsb)).c == decimal_point)
+  if ((grpeek (&a, aend, mbsa).c) == decimal_point &&
+      (grpeek (&b, bend, mbsb)).c == decimal_point)
     {
       while ((grafter (&a, aend, mbsa)).c == (grafter (&b, bend, mbsb)).c)
         if (! ISWDIGIT ((grpeek (&a, aend, mbsa)).c))
           return 0;
-      if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c) && ISWDIGIT ((grpeek (&b, bend, mbsb)).c))
+      if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c) &&
+          ISWDIGIT ((grpeek (&b, bend, mbsb)).c))
         return (grpeek (&a, aend, mbsa)).c - (grpeek (&b, bend, mbsb)).c;
       if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c))
         goto a_trailing_nonzero;
@@ -502,7 +506,8 @@ wnumcompare (char const *a, char const *b,
     {
       do
         tmpa = grafter (&a, aend, &mbsa);
-      while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF));
+      while (tmpa.c == WNUMERIC_ZERO ||
+             (tmpa.c == thousands_sep && thousands_sep != WEOF));
       if (tmpb.c != WNEGATION_SIGN)
         {
           if (tmpa.c == decimal_point)
@@ -511,7 +516,8 @@ wnumcompare (char const *a, char const *b,
             while (tmpa.c == WNUMERIC_ZERO);
           if (ISWDIGIT (tmpa.c))
             return -1;
-          while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF))
+          while (tmpb.c == WNUMERIC_ZERO ||
+                 (tmpb.c == thousands_sep && thousands_sep != WEOF))
             tmpb = grafter (&b, bend, &mbsb);
           if (tmpb.c == decimal_point)
             do
@@ -521,7 +527,8 @@ wnumcompare (char const *a, char const *b,
         }
       do
         tmpb = grafter (&b, bend, &mbsb);
-      while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF));
+      while (tmpb.c == WNUMERIC_ZERO ||
+             (tmpb.c == thousands_sep && thousands_sep != WEOF));
 
       while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))
         {
@@ -561,14 +568,16 @@ wnumcompare (char const *a, char const *b,
     {
       do
         tmpb = grafter (&b, bend, &mbsb);
-      while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF));
+      while (tmpb.c == WNUMERIC_ZERO ||
+             (tmpb.c == thousands_sep && thousands_sep != WEOF));
       if (tmpb.c == decimal_point)
         do
           tmpb = grafter (&b, bend, &mbsb);
         while (tmpb.c == WNUMERIC_ZERO);
       if (ISWDIGIT (tmpb.c))
         return 1;
-      while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF))
+      while (tmpa.c == WNUMERIC_ZERO ||
+             (tmpa.c == thousands_sep && thousands_sep != WEOF))
         tmpa = grafter (&a, aend, &mbsa);
       if (tmpa.c == decimal_point)
         do
@@ -578,9 +587,11 @@ wnumcompare (char const *a, char const *b,
     }
   else
     {
-      while (tmpa.c == WNUMERIC_ZERO || (tmpa.c == thousands_sep && thousands_sep != WEOF))
+      while (tmpa.c == WNUMERIC_ZERO ||
+             (tmpa.c == thousands_sep && thousands_sep != WEOF))
         tmpa = grafter (&a, aend, &mbsa);
-      while (tmpb.c == WNUMERIC_ZERO || (tmpb.c == thousands_sep && thousands_sep != WEOF))
+      while (tmpb.c == WNUMERIC_ZERO ||
+             (tmpb.c == thousands_sep && thousands_sep != WEOF))
         tmpb = grafter (&b, bend, &mbsb);
 
       while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))

@@ -40,7 +40,8 @@ void initgrbuffer (struct grlinebuffer *linebuffer);
    Return LINEBUFFER, except at end of file return NULL.  */
 
 struct grlinebuffer *readgrlinebuffer_delim (struct grlinebuffer *linebuffer,
-                                         FILE *stream, wchar_t delimiter, mbstate_t *mbs);
+                                             FILE *stream, wchar_t delimiter,
+                                             mbstate_t *mbs);
 
 int xwmemcoll (wchar_t *, size_t, wchar_t *, size_t);
 int xgrmemcoll (grapheme *, size_t, grapheme *, size_t);
@@ -50,8 +51,9 @@ const char *grnstr (const grapheme *s, size_t n);
 
 extern wchar_t *xwcsndup (const wchar_t *string, size_t n);
 
-ssize_t grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
-                     wchar_t delim1, wchar_t delim2, FILE *stream, mbstate_t *mbs);
+ssize_t grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset,
+                      size_t nmax, wchar_t delim1, wchar_t delim2,
+                      FILE *stream, mbstate_t *mbs);
 
 wchar_t *xwcsdup (wchar_t const *string);
 

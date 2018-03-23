@@ -1641,7 +1641,8 @@ begfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && sword--)
       {
-        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
+        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF;
+             c = grnext(&ptr, lim, &mbs))
           {
             if (c.c == tab)
               {
@@ -1656,13 +1657,15 @@ begfield (struct line const *line, struct keyfield const *key)
   else
     while (ptr < lim && sword--)
       {
-        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
+        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF;
+             c = grnext(&ptr, lim, &mbs))
           {
             if (!blanks (c.c))
               break;
           }
 
-        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
+        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF;
+             c = grnext(&ptr, lim, &mbs))
           {
             if (blanks (c.c))
               break;
@@ -1673,7 +1676,8 @@ begfield (struct line const *line, struct keyfield const *key)
      of the field, skip past them here.  */
   if (key->skipsblanks)
     {
-      for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext(&ptr, lim, &mbs))
+      for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+           c = grnext(&ptr, lim, &mbs))
         {
           if (!blanks (c.c))
             break;
@@ -1688,7 +1692,8 @@ begfield (struct line const *line, struct keyfield const *key)
     }
 
   if (!mbsinit(&mbs))
-    die (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
+    die (EXIT_FAILURE, 0,
+         _("multibyte text is still in shifted state at start of field"));
 
   // TODO: work out const issues
   return (char *) ptr;
@@ -1718,7 +1723,8 @@ limfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && eword--)
       {
-        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
           {
             if (c.c == tab)
               break;
@@ -1732,13 +1738,15 @@ limfield (struct line const *line, struct keyfield const *key)
   else
     while (ptr < lim && eword--)
       {
-        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
           {
             if (!blanks (c.c))
               break;
           }
 
-        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
           {
             if (blanks (c.c))
               break;
@@ -1804,7 +1812,8 @@ limfield (struct line const *line, struct keyfield const *key)
          of the field, skip past them here.  */
       if (key->skipeblanks)
         {
-          for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF; c = grnext (&ptr, lim, &mbs))
+          for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+               c = grnext (&ptr, lim, &mbs))
             {
               if (!blanks (c.c))
                 break;
@@ -1820,7 +1829,8 @@ limfield (struct line const *line, struct keyfield const *key)
     }
 
   if (!mbsinit(&mbs))
-    die (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at end of field"));
+    die (EXIT_FAILURE, 0,
+         _("multibyte text is still in shifted state at end of field"));
 
   // TODO: work out const issues
   return (char *) ptr;
@@ -1856,7 +1866,8 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
       struct line *linelim = buffer_linelim (buf);
       struct line *line = linelim - buf->nlines;
       size_t avail = (char *) linelim - buf->nlines * line_bytes - ptr;
-      const char *line_start = buf->nlines ? line->text + line->length : buf->buf;
+      const char *line_start = buf->nlines ? line->text + line->length :
+          buf->buf;
 
       while (line_bytes + 1 < avail)
         {
@@ -1918,14 +1929,18 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
                           mbstate_t mbs = { 0 };
                           grapheme c;
 
-                          for (; (c = grpeek (&line_start, line_end, &mbs)).c != WEOF; c = grnext (&line_start, line_end, &mbs))
+                          for (; (c = grpeek (&line_start, line_end, &mbs)).c
+                               != WEOF;
+                               c = grnext (&line_start, line_end, &mbs))
                             {
                               if (!blanks (c.c))
                                 break;
                             }
 
                           if (!mbsinit(&mbs))
-                            die (EXIT_FAILURE, 0, _("multibyte text is still in shifted state at start of field"));
+                            die (EXIT_FAILURE, 0,
+                                 _("multibyte text is still in shifted state "
+                                   "at start of field"));
                         }
                       // TODO: Figure out const
                       line->keybeg = (char *) line_start;
@@ -2219,7 +2234,8 @@ getmonth (char const *month, char **ea)
   mbstate_t mbs = { 0 };
   grapheme c;
 
-  for (; (c = grpeek (&month, mend, &mbs)).c != WEOF; c = grnext (&month, mend, &mbs))
+  for (; (c = grpeek (&month, mend, &mbs)).c != WEOF;
+       c = grnext (&month, mend, &mbs))
     {
       if (!blanks(c.c))
         break;
@@ -2503,7 +2519,8 @@ debug_key (struct line const *line, struct keyfield const *key)
           grapheme c;
           mbstate_t mbs = { 0 };
 
-          for (; (c = grpeek (&beg, lim, &mbs)).c != WEOF; c = grnext (&beg, lim, &mbs))
+          for (; (c = grpeek (&beg, lim, &mbs)).c != WEOF;
+               c = grnext (&beg, lim, &mbs))
             {
               if (!blanks(c.c))
                 break;
@@ -2874,8 +2891,13 @@ keycompare (struct line const *a, struct line const *b)
             {
               /* Use the keys in-place, temporarily null-terminated.  */
               // TODO: Figure out const
-              ta = (char *) texta; tlena = lena; enda = ta[tlena]; ta[tlena] = '\0';
-              tb = (char *) textb; tlenb = lenb; endb = tb[tlenb]; tb[tlenb] = '\0';
+              ta = (char *) texta;
+              tlena = lena;
+              enda = ta[tlena]; ta[tlena] = '\0';
+
+              tb = (char *) textb;
+              tlenb = lenb;
+              endb = tb[tlenb]; tb[tlenb] = '\0';
             }
 
           if (key->numeric)
@@ -2917,13 +2939,15 @@ keycompare (struct line const *a, struct line const *b)
               mbstate_t mbsa = { 0 }, mbsb = { 0 };
               grapheme ca, cb;
 
-              for (; (ca = grpeek (&texta, lima, &mbsa)).c != WEOF; ca = grnext (&texta, lima, &mbsa))
+              for (; (ca = grpeek (&texta, lima, &mbsa)).c != WEOF;
+                   ca = grnext (&texta, lima, &mbsa))
                 {
                   if (!ignore(ca.c))
                     break;
                 }
 
-              for (; (cb = grpeek (&textb, limb, &mbsb)).c != WEOF; cb = grnext (&textb, limb, &mbsb))
+              for (; (cb = grpeek (&textb, limb, &mbsb)).c != WEOF;
+                   cb = grnext (&textb, limb, &mbsb))
                 {
                   if (!ignore(cb.c))
                     break;
@@ -3019,13 +3043,15 @@ keycompare (struct line const *a, struct line const *b)
               grapheme c;
               mbstate_t mbsa = { 0 }, mbsb = { 0 };
 
-              for (; (c = grpeek (&texta, lima, &mbsa)).c != WEOF; c = grnext (&texta, lima, &mbsa))
+              for (; (c = grpeek (&texta, lima, &mbsa)).c != WEOF;
+                   c = grnext (&texta, lima, &mbsa))
                 {
                   if (!blanks(c.c))
                     break;
                 }
 
-              for (; (c = grpeek (&textb, limb, &mbsb)).c != WEOF; c = grnext (&textb, limb, &mbsb))
+              for (; (c = grpeek (&textb, limb, &mbsb)).c != WEOF;
+                   c = grnext (&textb, limb, &mbsb))
                 {
                   if (!blanks(c.c))
                     break;

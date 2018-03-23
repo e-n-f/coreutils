@@ -425,8 +425,10 @@ src_base32_CPPFLAGS = -DBASE_TYPE=32 $(AM_CPPFLAGS)
 
 src_ginstall_CPPFLAGS = -DENABLE_MATCHPATHCON=1 $(AM_CPPFLAGS)
 
-src_expand_SOURCES = src/expand.c src/expand-common.c src/grapheme.c src/widetext.c
-src_unexpand_SOURCES = src/unexpand.c src/expand-common.c src/grapheme.c src/widetext.c
+src_expand_SOURCES = src/expand.c src/expand-common.c \
+                     src/grapheme.c src/widetext.c
+src_unexpand_SOURCES = src/unexpand.c src/expand-common.c \
+                       src/grapheme.c src/widetext.c
 
 # Ensure we don't link against libcoreutils.a as that lib is
 # not compiled with -fPIC which causes issues on 64 bit at least

@@ -651,7 +651,8 @@ main (int argc, char **argv)
 
         case 'w':
           check_chars = size_opt (optarg,
-                                  N_("invalid number of characters to compare"));
+                                  N_("invalid number of characters "
+                                     "to compare"));
           break;
 
         case 'z':

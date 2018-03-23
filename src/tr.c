@@ -672,7 +672,8 @@ append_range (struct Spec_list *list, wchar_t first, wchar_t last)
       wchar_t *tmp2 = make_printable_char (last);
 
       error (0, 0,
-       _("range-endpoints of '%ls-%ls' are in reverse collating sequence order"),
+       _("range-endpoints of '%ls-%ls' are in "
+         "reverse collating sequence order"),
              tmp1, tmp2);
       free (tmp1);
       free (tmp2);
@@ -811,7 +812,8 @@ find_bracketed_repeat (const struct E_string *es, size_t start_idx,
               wchar_t const *digit_str = &es->s[start_idx + 2];
               wchar_t *d_end;
               errno = 0;
-              *repeat_count = wcstoumax (digit_str, &d_end, *digit_str == L'0' ? 8 : 10);
+              *repeat_count = wcstoumax (digit_str, &d_end,
+                                         *digit_str == L'0' ? 8 : 10);
               if (d_end == digit_str
                   || errno != 0
                   || REPEAT_COUNT_MAXIMUM < *repeat_count
@@ -1608,7 +1610,10 @@ grfwrite (grapheme *buf, size_t n, FILE *f)
    character is in the squeeze set.  */
 
 static void
-squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (grapheme *, size_t, mbstate_t *, struct Spec_list *, bool), struct Spec_list *rules, bool compl, struct Spec_list *read_rules, bool read_compl)
+squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs,
+                size_t (*reader) (grapheme *, size_t, mbstate_t *,
+                struct Spec_list *, bool), struct Spec_list *rules,
+                bool compl, struct Spec_list *read_rules, bool read_compl)
 {
   /* A value distinct from any character that may have been stored in a
      buffer as the result of a block-read in the function squeeze_filter.  */
@@ -1693,7 +1698,8 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs, size_t (*reader) (gr
 }
 
 static size_t
-plain_read (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *ignored_rule, bool ignored_complement)
+plain_read (grapheme *buf, size_t size, mbstate_t *mbs,
+            struct Spec_list *ignored_rule, bool ignored_complement)
 {
   size_t n = 0;
   while (n < size)
@@ -1719,7 +1725,8 @@ plain_read (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *ignore
    or 0 upon EOF.  */
 
 static size_t
-read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *rule, bool compl)
+read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs,
+                 struct Spec_list *rule, bool compl)
 {
   size_t n_saved;
 
@@ -1757,7 +1764,8 @@ read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *r
    array 'xlate'.  Return the number of characters read, or 0 upon EOF.  */
 
 static size_t
-read_and_xlate (grapheme *buf, size_t size, mbstate_t *mbs, struct Spec_list *rule_ignored, bool complement_ignored)
+read_and_xlate (grapheme *buf, size_t size, mbstate_t *mbs,
+                struct Spec_list *rule_ignored, bool complement_ignored)
 {
   size_t bytes_read = plain_read (buf, size, mbs, NULL, false);
 
@@ -1880,13 +1888,15 @@ main (int argc, char **argv)
 
   if (squeeze_repeats && non_option_args == 1)
     {
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, plain_read, s1, complement, NULL, 0);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs,
+                      plain_read, s1, complement, NULL, 0);
     }
   else if (delete && non_option_args == 1)
     {
       while (true)
         {
-          size_t nr = read_and_delete (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, s1, complement);
+          size_t nr = read_and_delete (io_buf, sizeof io_buf / sizeof(grapheme),
+                                       &mbs, s1, complement);
           if (nr == 0)
             break;
           if (grfwrite (io_buf, nr, stdout) != nr)
@@ -1895,7 +1905,8 @@ main (int argc, char **argv)
     }
   else if (squeeze_repeats && delete && non_option_args == 2)
     {
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_delete, s2, false, s1, complement);
+      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs,
+                      read_and_delete, s2, false, s1, complement);
     }
   else if (translating)
     {
@@ -1966,13 +1977,17 @@ main (int argc, char **argv)
         }
       if (squeeze_repeats)
         {
-          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, read_and_xlate, s2, false, NULL, false);
+          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs,
+                          read_and_xlate, s2, false, NULL, false);
         }
       else
         {
           while (true)
             {
-              size_t bytes_read = read_and_xlate (io_buf, sizeof io_buf / sizeof(grapheme), &mbs, NULL, false);
+              size_t bytes_read = read_and_xlate (io_buf,
+                                                  sizeof io_buf /
+                                                  sizeof(grapheme),
+                                                  &mbs, NULL, false);
               if (bytes_read == 0)
                 break;
               if (grfwrite (io_buf, bytes_read, stdout) != bytes_read)

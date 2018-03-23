@@ -293,7 +293,8 @@ cut_bytes (FILE *stream)
     }
 }
 
-/* Read from stream STREAM, printing to standard output any selected characters.  */
+/* Read from stream STREAM, printing to standard output
+   any selected characters.  */
 
 static void
 cut_characters (FILE *stream, bool use_bytes)
@@ -387,7 +388,8 @@ cut_fields (FILE *stream)
           size_t n_bytes;
 
           len = grgetndelim2 (&field_1_buffer, &field_1_bufsize, 0,
-                            GETNLINE_NO_LIMIT, delim.c, line_delim_wchar, stream, &mbs);
+                              GETNLINE_NO_LIMIT, delim.c, line_delim_wchar,
+                              stream, &mbs);
           if (len < 0)
             {
               free (field_1_buffer);
@@ -454,7 +456,8 @@ cut_fields (FILE *stream)
             }
           found_any_selected_field = true;
 
-          while ((c = fgetgr (stream, &mbs)).c != delim.c && c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c &&
+                 c.c != line_delim_wchar && c.c != WEOF)
             {
               putgrapheme (c);
               prev_c = c;
@@ -462,7 +465,8 @@ cut_fields (FILE *stream)
         }
       else
         {
-          while ((c = fgetgr (stream, &mbs)).c != delim.c && c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c &&
+                 c.c != line_delim_wchar && c.c != WEOF)
             {
               prev_c = c;
             }

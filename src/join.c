@@ -537,7 +537,8 @@ getseq (FILE *fp, struct seq *seq, int whichfile, mbstate_t *mbs)
 /* Read a line from FP and add it to SEQ, as the first item if FIRST is
    true, else as the next.  */
 static bool
-advance_seq (FILE *fp, struct seq *seq, bool first, int whichfile, mbstate_t *mbs)
+advance_seq (FILE *fp, struct seq *seq, bool first, int whichfile,
+             mbstate_t *mbs)
 {
   if (first)
     seq->count = 0;
@@ -1123,8 +1124,9 @@ main (int argc, char **argv)
         case 't':
           {
             grapheme newtab;
+            /* '' => process the whole line.  */
             if (optarg[0] == '\0')
-              newtab = grapheme_wchar (L'\n'); /* '' => process the whole line.  */
+              newtab = grapheme_wchar (L'\n');
             else
               {
                 mbstate_t mbs = { 0 };

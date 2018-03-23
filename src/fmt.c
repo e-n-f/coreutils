@@ -678,7 +678,8 @@ copy_rest (FILE *f, grapheme c, mbstate_t *mbs)
     {
       const grapheme *s;
       put_space (next_prefix_indent);
-      for (s = prefix; out_column != in_column && s->c != L'\0'; out_column += charwidth (s[-1].c))
+      for (s = prefix; out_column != in_column && s->c != L'\0';
+           out_column += charwidth (s[-1].c))
         fputgr (*s++, stdout);
       if (c.c != WEOF && c.c != L'\n')
         put_space (in_column - out_column);
@@ -888,7 +889,8 @@ flush_paragraph (void)
   /* Copy text of words down to start of parabuf -- we use memmove because
      the source and target may overlap.  */
 
-  memmove (parabuf, split_point->text, (wptr - split_point->text) * sizeof(grapheme));
+  memmove (parabuf, split_point->text,
+           (wptr - split_point->text) * sizeof(grapheme));
   shift = split_point->text - parabuf;
   wptr -= shift;
 

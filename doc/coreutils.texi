@@ -2728,7 +2728,8 @@ is split into as many lines as necessary.
 than one column, backspace decreases the column count, and carriage
 return sets the column to zero.
 
-Note that older versions of GNU @command{fmt} counted bytes, not column positions,
+Note that older versions of GNU @command{fmt} counted bytes,
+not column positions,
 so text that contained multibyte or zero-width characters would be folded to
 the wrong width.
 
