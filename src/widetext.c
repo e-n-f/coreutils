@@ -450,7 +450,8 @@ ISWDIGIT(wchar_t c)
 }
 
 static inline int _GL_ATTRIBUTE_PURE
-wfraccompare (char const *a, char const *b, wint_t decimal_point, mbstate_t *mbsa, mbstate_t *mbsb)
+wfraccompare (char const *a, char const *b, wint_t decimal_point,
+              mbstate_t *mbsa, mbstate_t *mbsb)
 {
   const char *aend = a + strlen (a);
   const char *bend = b + strlen (b);
