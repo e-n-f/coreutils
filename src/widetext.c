@@ -441,7 +441,7 @@ xwcsdup (wchar_t const *string)
 # define WNEGATION_SIGN   L'-'
 # define WNUMERIC_ZERO    L'0'
 
-bool
+bool _GL_ATTRIBUTE_CONST
 ISWDIGIT(wchar_t c)
 {
   return c >= L'0' && c - L'0' <= 9;
