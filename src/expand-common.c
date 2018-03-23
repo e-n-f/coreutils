@@ -237,7 +237,7 @@ void
 parse_tab_stops (char const *stops)
 {
   wchar_t tmp[strlen (stops) + 1];
-  if (mbstowcs(tmp, stops, strlen (stops) + 1) == (size_t) -1)
+  if (mbstowcs (tmp, stops, strlen (stops) + 1) == (size_t) -1)
     die (EXIT_FAILURE, 0, _("multibyte string conversion"));
   parse_tab_stops_wc (tmp);
 }

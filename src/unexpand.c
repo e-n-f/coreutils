@@ -123,7 +123,7 @@ unexpand (void)
   /* The worst case is a non-blank character, then one blank, then a
      tab stop, then MAX_COLUMN_WIDTH - 1 blanks, then a non-blank; so
      allocate MAX_COLUMN_WIDTH bytes to store the blanks.  */
-  pending_blank = xmalloc (max_column_width * sizeof(grapheme));
+  pending_blank = xmalloc (max_column_width * sizeof (grapheme));
   pending_blank_size = max_column_width;
 
   while (true)
@@ -214,7 +214,7 @@ unexpand (void)
                                   pending_blank_size *= 2;
                                   xrealloc (pending_blank,
                                             pending_blank_size *
-                                            sizeof(grapheme));
+                                            sizeof (grapheme));
                                 }
                               pending_blank[pending++] = c;
                               prev_blank = true;
@@ -252,7 +252,7 @@ unexpand (void)
                     pending_blank[0] = grapheme_wchar (L'\t');
                   for (size_t i = 0; i < pending; i++)
                     {
-                      if (putgrapheme(pending_blank[i]).c == WEOF)
+                      if (putgrapheme (pending_blank[i]).c == WEOF)
                         die (EXIT_FAILURE, errno, _("write error"));
                     }
                   pending = 0;
