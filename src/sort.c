@@ -2073,27 +2073,9 @@ traverse_raw_number (char const **number)
     }
 
   if (ch.c == decimal_point)
-    {
-      while (true)
-        {
-          ch = grpeek (&p, pend, &mbs);
-          if (ch.c == WEOF)
-            break;
-
-          if (!isdigit (ch.c))
-            {
-              // still advances past the non-digit
-
-              p2 = p1, p1 = p;
-              ch = grnext (&p, pend, &mbs);
-
-              break;
-            }
-
-          if (max_digit < ch.c)
-            max_digit = ch.c;
-        }
-    }
+    while (iswdigit ((ch = grnext (&p, pend, &mbs)).c))
+      if (max_digit < ch.c)
+        max_digit = ch.c;
 
   *number = p1;
   return max_digit;
