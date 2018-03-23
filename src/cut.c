@@ -456,8 +456,8 @@ cut_fields (FILE *stream)
             }
           found_any_selected_field = true;
 
-          while ((c = fgetgr (stream, &mbs)).c != delim.c &&
-                 c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c
+                 && c.c != line_delim_wchar && c.c != WEOF)
             {
               putgrapheme (c);
               prev_c = c;
@@ -465,8 +465,8 @@ cut_fields (FILE *stream)
         }
       else
         {
-          while ((c = fgetgr (stream, &mbs)).c != delim.c &&
-                 c.c != line_delim_wchar && c.c != WEOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c
+                 && c.c != line_delim_wchar && c.c != WEOF)
             {
               prev_c = c;
             }

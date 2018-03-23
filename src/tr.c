@@ -1985,8 +1985,8 @@ main (int argc, char **argv)
           while (true)
             {
               size_t bytes_read = read_and_xlate (io_buf,
-                                                  sizeof io_buf /
-                                                  sizeof(grapheme),
+                                                  sizeof io_buf
+                                                  / sizeof(grapheme),
                                                   &mbs, NULL, false);
               if (bytes_read == 0)
                 break;

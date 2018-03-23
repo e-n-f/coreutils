@@ -456,14 +456,14 @@ wfraccompare (char const *a, char const *b, wint_t decimal_point,
   const char *aend = a + strlen (a);
   const char *bend = b + strlen (b);
 
-  if ((grpeek (&a, aend, mbsa).c) == decimal_point &&
-      (grpeek (&b, bend, mbsb)).c == decimal_point)
+  if ((grpeek (&a, aend, mbsa).c) == decimal_point
+      && (grpeek (&b, bend, mbsb)).c == decimal_point)
     {
       while ((grafter (&a, aend, mbsa)).c == (grafter (&b, bend, mbsb)).c)
         if (! ISWDIGIT ((grpeek (&a, aend, mbsa)).c))
           return 0;
-      if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c) &&
-          ISWDIGIT ((grpeek (&b, bend, mbsb)).c))
+      if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c)
+          && ISWDIGIT ((grpeek (&b, bend, mbsb)).c))
         return (grpeek (&a, aend, mbsa)).c - (grpeek (&b, bend, mbsb)).c;
       if (ISWDIGIT ((grpeek (&a, aend, mbsa)).c))
         goto a_trailing_nonzero;
@@ -507,8 +507,8 @@ wnumcompare (char const *a, char const *b,
     {
       do
         tmpa = grafter (&a, aend, &mbsa);
-      while (tmpa.c == WNUMERIC_ZERO ||
-             (tmpa.c == thousands_sep && thousands_sep != WEOF));
+      while (tmpa.c == WNUMERIC_ZERO
+             || (tmpa.c == thousands_sep && thousands_sep != WEOF));
       if (tmpb.c != WNEGATION_SIGN)
         {
           if (tmpa.c == decimal_point)
@@ -517,8 +517,8 @@ wnumcompare (char const *a, char const *b,
             while (tmpa.c == WNUMERIC_ZERO);
           if (ISWDIGIT (tmpa.c))
             return -1;
-          while (tmpb.c == WNUMERIC_ZERO ||
-                 (tmpb.c == thousands_sep && thousands_sep != WEOF))
+          while (tmpb.c == WNUMERIC_ZERO
+                 || (tmpb.c == thousands_sep && thousands_sep != WEOF))
             tmpb = grafter (&b, bend, &mbsb);
           if (tmpb.c == decimal_point)
             do
@@ -528,8 +528,8 @@ wnumcompare (char const *a, char const *b,
         }
       do
         tmpb = grafter (&b, bend, &mbsb);
-      while (tmpb.c == WNUMERIC_ZERO ||
-             (tmpb.c == thousands_sep && thousands_sep != WEOF));
+      while (tmpb.c == WNUMERIC_ZERO
+             || (tmpb.c == thousands_sep && thousands_sep != WEOF));
 
       while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))
         {
@@ -569,16 +569,16 @@ wnumcompare (char const *a, char const *b,
     {
       do
         tmpb = grafter (&b, bend, &mbsb);
-      while (tmpb.c == WNUMERIC_ZERO ||
-             (tmpb.c == thousands_sep && thousands_sep != WEOF));
+      while (tmpb.c == WNUMERIC_ZERO
+             || (tmpb.c == thousands_sep && thousands_sep != WEOF));
       if (tmpb.c == decimal_point)
         do
           tmpb = grafter (&b, bend, &mbsb);
         while (tmpb.c == WNUMERIC_ZERO);
       if (ISWDIGIT (tmpb.c))
         return 1;
-      while (tmpa.c == WNUMERIC_ZERO ||
-             (tmpa.c == thousands_sep && thousands_sep != WEOF))
+      while (tmpa.c == WNUMERIC_ZERO
+             || (tmpa.c == thousands_sep && thousands_sep != WEOF))
         tmpa = grafter (&a, aend, &mbsa);
       if (tmpa.c == decimal_point)
         do
@@ -588,11 +588,11 @@ wnumcompare (char const *a, char const *b,
     }
   else
     {
-      while (tmpa.c == WNUMERIC_ZERO ||
-             (tmpa.c == thousands_sep && thousands_sep != WEOF))
+      while (tmpa.c == WNUMERIC_ZERO
+             || (tmpa.c == thousands_sep && thousands_sep != WEOF))
         tmpa = grafter (&a, aend, &mbsa);
-      while (tmpb.c == WNUMERIC_ZERO ||
-             (tmpb.c == thousands_sep && thousands_sep != WEOF))
+      while (tmpb.c == WNUMERIC_ZERO
+             || (tmpb.c == thousands_sep && thousands_sep != WEOF))
         tmpb = grafter (&b, bend, &mbsb);
 
       while (tmpa.c == tmpb.c && ISWDIGIT (tmpa.c))

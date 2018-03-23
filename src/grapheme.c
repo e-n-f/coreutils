@@ -30,7 +30,6 @@
 
 #include "xalloc.h"
 #include "grapheme.h"
-#include "error.h"
 #include "exitfail.h"
 
 grapheme
