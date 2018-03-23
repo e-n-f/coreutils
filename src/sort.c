@@ -2848,7 +2848,7 @@ keycompare (struct line const *a, struct line const *b)
                   // TODO: Does this need to track bytes vs characters?
                   size_t count = wcrtomb (out, c.c, &mbsa_out);
                   if (count == (size_t) -1)
-                    error (EXIT_FAILURE, errno, _("string conversion failed"));
+                    die (EXIT_FAILURE, errno, _("string conversion failed"));
 
                   out += count;
                 }
@@ -2879,7 +2879,7 @@ keycompare (struct line const *a, struct line const *b)
                   // TODO: Does this need to track bytes vs characters?
                   size_t count = wcrtomb (out, c.c, &mbsb_out);
                   if (count == (size_t) -1)
-                    error (EXIT_FAILURE, errno, _("string conversion failed"));
+                    die (EXIT_FAILURE, errno, _("string conversion failed"));
 
                   out += count;
                 }
