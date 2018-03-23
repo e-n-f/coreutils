@@ -2288,6 +2288,10 @@ and Michael F. Plass in ``Breaking Paragraphs Into Lines'',
 @cite{Software---Practice & Experience} @b{11}, 11 (November 1981),
 1119--1184.
 
+Note that older versions of GNU @command{fmt} counted bytes rather than
+column positions, so lines that contained multibyte or zero-width characters
+would have had the wrong widths.
+
 The program accepts the following options.  Also see @ref{Common options}.
 
 @table @samp
@@ -2396,6 +2400,13 @@ is @samp{space}).  For multicolumn output, lines will always be truncated to
 For single
 column output no line truncation occurs by default.  Use @option{-W} option to
 truncate lines in that case.
+
+Note that older versions of GNU @command{pr} counted bytes,
+not column positions, so lines that contained multibyte or
+zero-width characters would have had the wrong widths.
+Earlier versions also only allowed bytes, not characters,
+as separators in the @option{--expand-tabs}, @option{--output-tabs},
+and @option{--number-lines} options.
 
 The program accepts the following options.  Also see @ref{Common options}.
 
@@ -2716,6 +2727,10 @@ is split into as many lines as necessary.
 @command{fold} counts screen columns by default; thus, a tab may count more
 than one column, backspace decreases the column count, and carriage
 return sets the column to zero.
+
+Note that older versions of GNU @command{fmt} counted bytes, not column positions,
+so text that contained multibyte or zero-width characters would be folded to
+the wrong width.
 
 The program accepts the following options.  Also see @ref{Common options}.
 
@@ -7088,7 +7103,7 @@ tabs every 8 columns).
 
 Note that older versions of GNU @command{expand} actually counted
 bytes, not column positions, so tabs that followed multibyte or
-nonprinting characters would be expanded to the wrong number of spaces.
+zero-width characters would be expanded to the wrong number of spaces.
 It now counts column positions, not bytes.
 
 The program accepts the following options.  Also see @ref{Common options}.
@@ -7163,7 +7178,7 @@ column.
 
 Note that older versions of GNU @command{unexpand} actually counted
 bytes, not column positions, so series of spaces that followed multibyte or
-nonprinting characters would be contracted to the wrong number of spaces
+zero-width characters would be contracted to the wrong number of spaces
 and tabs. It now counts column positions, not bytes.
 
 The program accepts the following options.  Also see @ref{Common options}.
