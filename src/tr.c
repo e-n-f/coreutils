@@ -431,7 +431,7 @@ unquote (wchar_t const *s, struct E_string *es)
 {
   size_t len = wcslen (s);
 
-  es->s = xmalloc (len * sizeof(wchar_t));
+  es->s = xmalloc (len * sizeof (wchar_t));
   es->escaped = xcalloc (len, sizeof es->escaped[0]);
 
   unsigned int j = 0;
@@ -555,7 +555,7 @@ look_up_char_class (wchar_t const *class_str, size_t len)
 static wchar_t *
 make_printable_char (wchar_t c)
 {
-  wchar_t *buf = xmalloc (5 * sizeof(wchar_t));
+  wchar_t *buf = xmalloc (5 * sizeof (wchar_t));
 
   if (iswprint (c))
     {
@@ -592,7 +592,7 @@ make_printable_str (wchar_t const *s, size_t len)
 {
   /* Worst case is that every character expands to a backslash
      followed by a 3-character octal escape sequence.  */
-  wchar_t *printable_buf = xnmalloc (len + 1, 4 * sizeof(wchar_t));
+  wchar_t *printable_buf = xnmalloc (len + 1, 4 * sizeof (wchar_t));
   wchar_t *p = printable_buf;
 
   for (size_t i = 0; i < len; i++)
@@ -1187,7 +1187,7 @@ is_in_spec_list (struct Spec_list *s, wchar_t c) {
 
   while (s->tail != NULL)
     {
-      if (is_in(s->tail, c))
+      if (is_in (s->tail, c))
         return true;
 
       s->tail = s->tail->next;
@@ -1423,10 +1423,10 @@ parse_str (wchar_t const *s, struct Spec_list *spec_list)
 static bool
 parse_mb (const char *s, struct Spec_list *spec_list)
 {
-  wchar_t tmp[strlen(s) + 1];
-  if (mbstowcs(tmp, s, strlen(s) + 1) == (size_t) -1)
+  wchar_t tmp[strlen (s) + 1];
+  if (mbstowcs (tmp, s, strlen (s) + 1) == (size_t) -1)
     die (EXIT_FAILURE, errno, _("multibyte string conversion"));
-  return parse_str(tmp, spec_list);
+  return parse_str (tmp, spec_list);
 }
 
 /* Given two specification lists, S1 and S2, and assuming that
@@ -1591,7 +1591,7 @@ grfwrite (grapheme *buf, size_t n, FILE *f)
 
   for (i = 0; i < n; i++)
     {
-      if (putgrapheme(buf[i]).c == WEOF)
+      if (putgrapheme (buf[i]).c == WEOF)
         {
           break;
         }
@@ -1649,13 +1649,13 @@ squeeze_filter (grapheme *buf, size_t size, mbstate_t *mbs,
              of the input is removed by squeezing repeats.  But most
              uses of this functionality seem to remove less than 20-30%
              of the input.  */
-          for (; i < nr && !(is_in_spec_list(rules, buf[i].c) ^ compl); i += 2)
+          for (; i < nr && !(is_in_spec_list (rules, buf[i].c) ^ compl); i += 2)
             continue;
 
           /* There is a special case when i == nr and we've just
              skipped a character (the last one in buf) that is in
              the squeeze set.  */
-          if (i == nr && (is_in_spec_list(rules, buf[i - 1].c) ^ compl))
+          if (i == nr && (is_in_spec_list (rules, buf[i - 1].c) ^ compl))
             --i;
 
           if (i >= nr)
@@ -1704,12 +1704,12 @@ plain_read (grapheme *buf, size_t size, mbstate_t *mbs,
   size_t n = 0;
   while (n < size)
     {
-      grapheme c = getgrapheme(mbs);
+      grapheme c = getgrapheme (mbs);
       if (c.c == WEOF)
         {
-          if (ferror(stdin))
+          if (ferror (stdin))
             {
-              die(EXIT_FAILURE, errno, _("read error"));
+              die (EXIT_FAILURE, errno, _("read error"));
             }
           break;
         }
@@ -1746,12 +1746,12 @@ read_and_delete (grapheme *buf, size_t size, mbstate_t *mbs,
          of buf[i] into buf[n_saved] when it would be a NOP.  */
 
       size_t i;
-      for (i = 0; i < nr && !(is_in_spec_list(rule, buf[i].c) ^ compl); i++)
+      for (i = 0; i < nr && !(is_in_spec_list (rule, buf[i].c) ^ compl); i++)
         continue;
       n_saved = i;
 
       for (++i; i < nr; i++)
-        if (!(is_in_spec_list(rule, buf[i].c) ^ compl))
+        if (!(is_in_spec_list (rule, buf[i].c) ^ compl))
           buf[n_saved++] = buf[i];
     }
   while (n_saved == 0);
@@ -1888,14 +1888,15 @@ main (int argc, char **argv)
 
   if (squeeze_repeats && non_option_args == 1)
     {
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs,
+      squeeze_filter (io_buf, sizeof io_buf / sizeof (grapheme), &mbs,
                       plain_read, s1, complement, NULL, 0);
     }
   else if (delete && non_option_args == 1)
     {
       while (true)
         {
-          size_t nr = read_and_delete (io_buf, sizeof io_buf / sizeof(grapheme),
+          size_t nr = read_and_delete (io_buf,
+                                       sizeof io_buf / sizeof (grapheme),
                                        &mbs, s1, complement);
           if (nr == 0)
             break;
@@ -1905,7 +1906,7 @@ main (int argc, char **argv)
     }
   else if (squeeze_repeats && delete && non_option_args == 2)
     {
-      squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs,
+      squeeze_filter (io_buf, sizeof io_buf / sizeof (grapheme), &mbs,
                       read_and_delete, s2, false, s1, complement);
     }
   else if (translating)
@@ -1917,7 +1918,7 @@ main (int argc, char **argv)
             xlate[i] = i;
           for (int i = 0; i < N_CHARS; i++)
             {
-              if (!is_in_spec_list(s1, i))
+              if (!is_in_spec_list (s1, i))
                 {
                   wint_t ch = get_next (s2, NULL);
                   assert (ch != WEOF || truncate_set1);
@@ -1977,7 +1978,7 @@ main (int argc, char **argv)
         }
       if (squeeze_repeats)
         {
-          squeeze_filter (io_buf, sizeof io_buf / sizeof(grapheme), &mbs,
+          squeeze_filter (io_buf, sizeof io_buf / sizeof (grapheme), &mbs,
                           read_and_xlate, s2, false, NULL, false);
         }
       else
@@ -1986,7 +1987,7 @@ main (int argc, char **argv)
             {
               size_t bytes_read = read_and_xlate (io_buf,
                                                   sizeof io_buf
-                                                  / sizeof(grapheme),
+                                                  / sizeof (grapheme),
                                                   &mbs, NULL, false);
               if (bytes_read == 0)
                 break;

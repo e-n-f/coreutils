@@ -83,7 +83,7 @@ readgrlinebuffer_delim (struct grlinebuffer *linebuffer, FILE *stream,
       if (p == end)
         {
           size_t oldsize = linebuffer->size;
-          buffer = x2nrealloc (buffer, &linebuffer->size, sizeof(grapheme));
+          buffer = x2nrealloc (buffer, &linebuffer->size, sizeof (grapheme));
           p = buffer + oldsize;
           linebuffer->buffer = buffer;
           end = buffer + linebuffer->size;
@@ -146,7 +146,7 @@ wmemcoll (wchar_t *s1, size_t s1len, wchar_t *s2, size_t s2len)
      where the arguments are bytewise equal.  Otherwise, walk through
      the buffers using strcoll on each substring.  */
 
-  if (s1len == s2len && memcmp (s1, s2, s1len * sizeof(wchar_t)) == 0)
+  if (s1len == s2len && memcmp (s1, s2, s1len * sizeof (wchar_t)) == 0)
     {
       errno = 0;
       diff = 0;
@@ -232,10 +232,10 @@ xgrmemcoll (grapheme *s1, size_t s1len, grapheme *s2, size_t s2len)
 const char *
 wquote (const wchar_t *s)
 {
-  size_t bytes = MB_LEN_MAX * (wcslen(s) + 1);
+  size_t bytes = MB_LEN_MAX * (wcslen (s) + 1);
   char tmp[bytes];
 
-  size_t n = wcstombs(tmp, s, bytes);
+  size_t n = wcstombs (tmp, s, bytes);
   if (n == (size_t) -1)
     return _("conversion error");
   else
@@ -255,13 +255,13 @@ grnstr (const grapheme *s, size_t n)
         tmp[out++] = s[i].c;
       else
         {
-          int nn = wctomb(tmp + out, s[i].c);
+          int nn = wctomb (tmp + out, s[i].c);
           if (nn > 0)
             out += nn;
         }
     }
   tmp[out] = '\0';
-  return xstrdup(tmp);
+  return xstrdup (tmp);
 }
 
 /**** Wide version of xstrndup.c */
@@ -273,16 +273,16 @@ grnstr (const grapheme *s, size_t n)
 wchar_t *
 xwcsndup (const wchar_t *string, size_t n)
 {
-  size_t len = wcslen(string);
+  size_t len = wcslen (string);
   if (len > n)
     {
       len = n;
     }
 
-  wchar_t *s = xmalloc ((n + 1) * sizeof(wchar_t));
+  wchar_t *s = xmalloc ((n + 1) * sizeof (wchar_t));
   if (! s)
     xalloc_die ();
-  wcsncpy(s, string, n);
+  wcsncpy (s, string, n);
   s[n] = L'\0';
   return s;
 }
@@ -312,7 +312,7 @@ grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
   if (!ptr)
     {
       size = nmax < MIN_CHUNK ? nmax : MIN_CHUNK;
-      ptr = malloc (size * sizeof(grapheme));
+      ptr = malloc (size * sizeof (grapheme));
       if (!ptr)
         return -1;
     }
@@ -388,7 +388,7 @@ grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
             }
 
           nbytes_avail = newsize - (read_pos - ptr);
-          newptr = realloc (ptr, newsize * sizeof(grapheme));
+          newptr = realloc (ptr, newsize * sizeof (grapheme));
           if (!newptr)
             goto unlock_done;
           ptr = newptr;
@@ -434,7 +434,7 @@ grgetndelim2 (grapheme **lineptr, size_t *linesize, size_t offset, size_t nmax,
 wchar_t *
 xwcsdup (wchar_t const *string)
 {
-  return xmemdup (string, (wcslen(string) + 1) * sizeof(wchar_t));
+  return xmemdup (string, (wcslen (string) + 1) * sizeof (wchar_t));
 }
 
 
@@ -444,7 +444,7 @@ xwcsdup (wchar_t const *string)
 # define WNUMERIC_ZERO    L'0'
 
 bool _GL_ATTRIBUTE_CONST
-ISWDIGIT(wchar_t c)
+ISWDIGIT (wchar_t c)
 {
   return c >= L'0' && c - L'0' <= 9;
 }
@@ -497,7 +497,7 @@ wnumcompare (char const *a, char const *b,
   size_t log_b;
 
   grapheme tmpa, tmpb;
-  const char *aend = a + strlen(a), *bend = b + strlen(b);
+  const char *aend = a + strlen (a), *bend = b + strlen (b);
   mbstate_t mbsa = { 0 }, mbsb = { 0 };
 
   tmpa = grpeek (&a, aend, &mbsa);
@@ -522,7 +522,7 @@ wnumcompare (char const *a, char const *b,
             tmpb = grafter (&b, bend, &mbsb);
           if (tmpb.c == decimal_point)
             do
-              tmpb = grafter(&b, bend, &mbsb);
+              tmpb = grafter (&b, bend, &mbsb);
             while (tmpb.c == WNUMERIC_ZERO);
           return - ISWDIGIT (tmpb.c);
         }

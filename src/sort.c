@@ -283,16 +283,16 @@ static struct line saved_line;
    tricky.  */
 
 /* Table of blanks.  */
-static bool blanks(wchar_t);
+static bool blanks (wchar_t);
 
 /* Table of non-printing characters. */
-static bool nonprinting(wchar_t);
+static bool nonprinting (wchar_t);
 
 /* Table of non-dictionary characters (not letters, digits, or blanks). */
-static bool nondictionary(wchar_t);
+static bool nondictionary (wchar_t);
 
 /* Translation table folding lower case to upper.  */
-static wchar_t fold_toupper(wchar_t);
+static wchar_t fold_toupper (wchar_t);
 
 #define MONTHS_PER_YEAR 12
 
@@ -1283,27 +1283,27 @@ struct_month_cmp (void const *m1, void const *m2)
 #endif
 
 static bool
-blanks(wchar_t c)
+blanks (wchar_t c)
 {
   return wfield_sep (c);
 }
 
 static bool
-nonprinting(wchar_t c)
+nonprinting (wchar_t c)
 {
-  return ! iswprint(c);
+  return ! iswprint (c);
 }
 
 static bool
-nondictionary(wchar_t c)
+nondictionary (wchar_t c)
 {
   return ! iswalnum (c) && ! wfield_sep (c);
 }
 
 static wchar_t
-fold_toupper(wchar_t c)
+fold_toupper (wchar_t c)
 {
-  return towupper(c);
+  return towupper (c);
 }
 
 /* Initialize the character class tables. */
@@ -1322,8 +1322,8 @@ inittables (void)
           char const *s;
 
           s = nl_langinfo (ABMON_1 + i);
-          wchar_t tmp[strlen(s) + 1];
-          if (mbstowcs(tmp, s, strlen(s) + 1) == (size_t) -1)
+          wchar_t tmp[strlen (s) + 1];
+          if (mbstowcs (tmp, s, strlen (s) + 1) == (size_t) -1)
             error (0, errno, _("invalid month name %s"), quote (s));
 
           size_t out = 0;
@@ -1332,7 +1332,7 @@ inittables (void)
               tmp[out++] = towupper (tmp[j]);
           tmp[out] = L'\0';
 
-          monthtab[i].name = xwcsdup(tmp);
+          monthtab[i].name = xwcsdup (tmp);
           monthtab[i].val = i + 1;
         }
       qsort (monthtab, MONTHS_PER_YEAR, sizeof *monthtab, struct_month_cmp);
@@ -1641,8 +1641,8 @@ begfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && sword--)
       {
-        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF;
-             c = grnext(&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
           {
             if (c.c == tab)
               {
@@ -1657,15 +1657,15 @@ begfield (struct line const *line, struct keyfield const *key)
   else
     while (ptr < lim && sword--)
       {
-        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF;
-             c = grnext(&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
           {
             if (!blanks (c.c))
               break;
           }
 
-        for (; (c = grpeek(&ptr, lim, &mbs)).c != WEOF;
-             c = grnext(&ptr, lim, &mbs))
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
           {
             if (blanks (c.c))
               break;
@@ -1677,7 +1677,7 @@ begfield (struct line const *line, struct keyfield const *key)
   if (key->skipsblanks)
     {
       for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
-           c = grnext(&ptr, lim, &mbs))
+           c = grnext (&ptr, lim, &mbs))
         {
           if (!blanks (c.c))
             break;
@@ -1691,7 +1691,7 @@ begfield (struct line const *line, struct keyfield const *key)
         break;
     }
 
-  if (!mbsinit(&mbs))
+  if (!mbsinit (&mbs))
     die (EXIT_FAILURE, 0,
          _("multibyte text is still in shifted state at start of field"));
 
@@ -1798,9 +1798,9 @@ limfield (struct line const *line, struct keyfield const *key)
       char *newlim;
       newlim = ptr;
 #error needs multibyte
-      while (newlim < lim && blanks(to_uchar (*newlim)))
+      while (newlim < lim && blanks (to_uchar (*newlim)))
         ++newlim;
-      while (newlim < lim && !blanks(to_uchar (*newlim)))
+      while (newlim < lim && !blanks (to_uchar (*newlim)))
         ++newlim;
       lim = newlim;
     }
@@ -1828,7 +1828,7 @@ limfield (struct line const *line, struct keyfield const *key)
         }
     }
 
-  if (!mbsinit(&mbs))
+  if (!mbsinit (&mbs))
     die (EXIT_FAILURE, 0,
          _("multibyte text is still in shifted state at end of field"));
 
@@ -1937,7 +1937,7 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
                                 break;
                             }
 
-                          if (!mbsinit(&mbs))
+                          if (!mbsinit (&mbs))
                             die (EXIT_FAILURE, 0,
                                  _("multibyte text is still in shifted state "
                                    "at start of field"));
@@ -2014,7 +2014,7 @@ traverse_raw_number (char const **number)
   char const *p = *number;
   wchar_t max_digit = L'\0';
   bool ends_with_thousands_sep = false;
-  const char *pend = p + strlen(p);
+  const char *pend = p + strlen (p);
 
   /* Scan to end of number.
      Decimals or separators not followed by digits stop the scan.
@@ -2129,18 +2129,18 @@ human_numcompare (char const *a, char const *b)
   grapheme c;
 
   mbstate_t mbsa = { 0 };
-  const char *aend = a + strlen(a);
+  const char *aend = a + strlen (a);
   for (; (c = grpeek (&a, aend, &mbsa)).c != WEOF; c = grnext (&a, aend, &mbsa))
     {
-      if (!blanks(c.c))
+      if (!blanks (c.c))
         break;
     }
 
   mbstate_t mbsb = { 0 };
-  const char *bend = b + strlen(b);
+  const char *bend = b + strlen (b);
   for (; (c = grpeek (&b, bend, &mbsb)).c != WEOF; c = grnext (&b, bend, &mbsb))
     {
-      if (!blanks(c.c))
+      if (!blanks (c.c))
         break;
     }
 
@@ -2158,7 +2158,7 @@ numcompare (char const *a, char const *b)
   grapheme c;
 
   mbstate_t mbsa = { 0 };
-  const char *aend = a + strlen(a);
+  const char *aend = a + strlen (a);
   for (; (c = grpeek (&a, aend, &mbsa)).c != WEOF; c = grnext (&a, aend, &mbsa))
     {
       if (!blanks (c.c))
@@ -2166,7 +2166,7 @@ numcompare (char const *a, char const *b)
     }
 
   mbstate_t mbsb = { 0 };
-  const char *bend = b + strlen(b);
+  const char *bend = b + strlen (b);
   for (; (c = grpeek (&b, bend, &mbsb)).c != WEOF; c = grnext (&b, bend, &mbsb))
     {
       if (!blanks (c.c))
@@ -2230,14 +2230,14 @@ getmonth (char const *month, char **ea)
 {
   size_t lo = 0;
   size_t hi = MONTHS_PER_YEAR;
-  char const *mend = month + strlen(month);
+  char const *mend = month + strlen (month);
   mbstate_t mbs = { 0 };
   grapheme c;
 
   for (; (c = grpeek (&month, mend, &mbs)).c != WEOF;
        c = grnext (&month, mend, &mbs))
     {
-      if (!blanks(c.c))
+      if (!blanks (c.c))
         break;
     }
 
@@ -2522,7 +2522,7 @@ debug_key (struct line const *line, struct keyfield const *key)
           for (; (c = grpeek (&beg, lim, &mbs)).c != WEOF;
                c = grnext (&beg, lim, &mbs))
             {
-              if (!blanks(c.c))
+              if (!blanks (c.c))
                 break;
             }
 
@@ -2742,12 +2742,12 @@ xtrymemcoll0 (char const *s1, size_t s1size, char const *s2, size_t s2size)
   size_t len1 = 0, len2 = 0;
 
   grapheme c;
-  while ((c = grnext(&s1, s1end, &mbs1)).c != WEOF)
+  while ((c = grnext (&s1, s1end, &mbs1)).c != WEOF)
     tmp1[len1++] = c;
-  while ((c = grnext(&s2, s2end, &mbs2)).c != WEOF)
+  while ((c = grnext (&s2, s2end, &mbs2)).c != WEOF)
     tmp2[len2++] = c;
 
-  return xgrmemcoll(tmp1, len1, tmp2, len2);
+  return xgrmemcoll (tmp1, len1, tmp2, len2);
 }
 
 /* Compare two lines A and B trying every key in sequence until there
@@ -2835,20 +2835,20 @@ keycompare (struct line const *a, struct line const *b)
                   if (c.c == WEOF)
                     break;
 
-                  if (ignore && ignore(c.c))
+                  if (ignore && ignore (c.c))
                     continue;
 
                   if (translate)
                     {
-                      wchar_t translated = translate(c.c);
+                      wchar_t translated = translate (c.c);
                       if (!c.isbyte || translated <= UCHAR_MAX)
                         c.c = translated;
                     }
 
                   // TODO: Does this need to track bytes vs characters?
-                  size_t count = wcrtomb(out, c.c, &mbsa_out);
+                  size_t count = wcrtomb (out, c.c, &mbsa_out);
                   if (count == (size_t) -1)
-                    error(EXIT_FAILURE, errno, _("string conversion failed"));
+                    error (EXIT_FAILURE, errno, _("string conversion failed"));
 
                   out += count;
                 }
@@ -2871,15 +2871,15 @@ keycompare (struct line const *a, struct line const *b)
 
                   if (translate)
                     {
-                      wchar_t translated = translate(c.c);
+                      wchar_t translated = translate (c.c);
                       if (!c.isbyte || translated <= UCHAR_MAX)
                         c.c = translated;
                     }
 
                   // TODO: Does this need to track bytes vs characters?
-                  size_t count = wcrtomb(out, c.c, &mbsb_out);
+                  size_t count = wcrtomb (out, c.c, &mbsb_out);
                   if (count == (size_t) -1)
-                    error(EXIT_FAILURE, errno, _("string conversion failed"));
+                    error (EXIT_FAILURE, errno, _("string conversion failed"));
 
                   out += count;
                 }
@@ -2942,14 +2942,14 @@ keycompare (struct line const *a, struct line const *b)
               for (; (ca = grpeek (&texta, lima, &mbsa)).c != WEOF;
                    ca = grnext (&texta, lima, &mbsa))
                 {
-                  if (!ignore(ca.c))
+                  if (!ignore (ca.c))
                     break;
                 }
 
               for (; (cb = grpeek (&textb, limb, &mbsb)).c != WEOF;
                    cb = grnext (&textb, limb, &mbsb))
                 {
-                  if (!ignore(cb.c))
+                  if (!ignore (cb.c))
                     break;
                 }
 
@@ -3046,14 +3046,14 @@ keycompare (struct line const *a, struct line const *b)
               for (; (c = grpeek (&texta, lima, &mbsa)).c != WEOF;
                    c = grnext (&texta, lima, &mbsa))
                 {
-                  if (!blanks(c.c))
+                  if (!blanks (c.c))
                     break;
                 }
 
               for (; (c = grpeek (&textb, limb, &mbsb)).c != WEOF;
                    c = grnext (&textb, limb, &mbsb))
                 {
-                  if (!blanks(c.c))
+                  if (!blanks (c.c))
                     break;
                 }
             }
@@ -4588,7 +4588,7 @@ main (int argc, char **argv)
     if (d != NULL)
       {
         mbstate_t ds = { 0 };
-        grapheme dc = grnext (&d, d + strlen(d), &ds);
+        grapheme dc = grnext (&d, d + strlen (d), &ds);
         if (dc.c != WEOF)
           decimal_point = dc.c;
       }
@@ -4597,7 +4597,7 @@ main (int argc, char **argv)
     if (t != NULL)
       {
         mbstate_t ts = { 0 };
-        grapheme tc = grnext (&t, t + strlen(t), &ts);
+        grapheme tc = grnext (&t, t + strlen (t), &ts);
         if (tc.c != EOF)
           thousands_sep = tc.c;
       }
@@ -4884,7 +4884,7 @@ main (int argc, char **argv)
               {
                 mbstate_t mbs = { 0 };
                 const char *arg = optarg;
-                grapheme g = grnext (&arg, arg + strlen(arg), &mbs);
+                grapheme g = grnext (&arg, arg + strlen (arg), &mbs);
                 if (g.c == WEOF)
                   die (SORT_FAILURE, 0, _("empty tab"));
                 if (*arg != '\0')

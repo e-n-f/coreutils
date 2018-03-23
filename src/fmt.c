@@ -512,17 +512,17 @@ set_prefix_grs (grapheme *p)
 
 static void set_prefix (const char *p)
 {
-  const char *end = p + strlen(p);
+  const char *end = p + strlen (p);
   mbstate_t mbs = { 0 };
-  grapheme tmp[strlen(p) + 1];
+  grapheme tmp[strlen (p) + 1];
   grapheme g;
   size_t out = 0;
 
-  while ((g = grnext(&p, end, &mbs)).c != WEOF)
+  while ((g = grnext (&p, end, &mbs)).c != WEOF)
     tmp[out++] = g;
   tmp[out] = grapheme_wchar (L'\0');
 
-  set_prefix_grs (grsdup(tmp));
+  set_prefix_grs (grsdup (tmp));
 }
 
 /* read file F and send formatted output to stdout.  */
@@ -890,7 +890,7 @@ flush_paragraph (void)
      the source and target may overlap.  */
 
   memmove (parabuf, split_point->text,
-           (wptr - split_point->text) * sizeof(grapheme));
+           (wptr - split_point->text) * sizeof (grapheme));
   shift = split_point->text - parabuf;
   wptr -= shift;
 

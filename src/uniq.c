@@ -299,21 +299,21 @@ different (grapheme *old, grapheme *new, size_t oldlen, size_t newlen)
     newlen = check_chars;
 
   grapheme tmp1[oldlen], tmp2[newlen];
-  memcpy(tmp1, old, oldlen * sizeof(grapheme));
-  memcpy(tmp2, new, newlen * sizeof(grapheme));
+  memcpy (tmp1, old, oldlen * sizeof (grapheme));
+  memcpy (tmp2, new, newlen * sizeof (grapheme));
 
   if (ignore_case)
     {
       // As sort -f does
       for (size_t i = 0; i < oldlen; i++)
         {
-          wchar_t c = towupper(tmp1[i].c);
+          wchar_t c = towupper (tmp1[i].c);
           if (!tmp1[i].isbyte || c <= UCHAR_MAX)
             tmp1[i].c = c;
         }
       for (size_t i = 0; i < newlen; i++)
         {
-          wchar_t c = towupper(tmp2[i].c);
+          wchar_t c = towupper (tmp2[i].c);
           if (!tmp2[i].isbyte || c <= UCHAR_MAX)
             tmp2[i].c = c;
         }
@@ -321,7 +321,7 @@ different (grapheme *old, grapheme *new, size_t oldlen, size_t newlen)
 
   if (hard_LC_COLLATE)
     return xgrmemcoll (tmp1, oldlen, tmp2, newlen) != 0;
-  return oldlen != newlen || memcmp (tmp1, tmp2, oldlen * sizeof(grapheme));
+  return oldlen != newlen || memcmp (tmp1, tmp2, oldlen * sizeof (grapheme));
 }
 
 /* Output the line in linebuffer LINE to standard output

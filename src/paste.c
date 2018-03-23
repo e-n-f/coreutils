@@ -198,12 +198,12 @@ paste_parallel (size_t nfiles, char **fnamptr)
      round, the string of delimiters must be preserved.
      delbuf[0] through delbuf[nfiles]
      store the delimiters for closed files. */
-  wchar_t *delbuf = xmalloc ((nfiles + 2) * sizeof(wchar_t ));
+  wchar_t *delbuf = xmalloc ((nfiles + 2) * sizeof (wchar_t ));
 
   /* Streams open to the files to process; NULL if the corresponding
      stream is closed.  */
   FILE **fileptr = xnmalloc (nfiles + 1, sizeof *fileptr);
-  mbstate_t *mbs = xnmalloc (nfiles + 1, sizeof(mbstate_t));
+  mbstate_t *mbs = xnmalloc (nfiles + 1, sizeof (mbstate_t));
 
   /* Number of files still open to process.  */
   size_t files_open;
@@ -528,8 +528,8 @@ main (int argc, char **argv)
       nfiles++;
     }
 
-  wchar_t delim[strlen(delim_arg) + 1];
-  if (mbstowcs(delim, delim_arg, strlen(delim_arg) + 1) == (size_t) -1)
+  wchar_t delim[strlen (delim_arg) + 1];
+  if (mbstowcs (delim, delim_arg, strlen (delim_arg) + 1) == (size_t) -1)
     die (EXIT_FAILURE, errno, "multibyte string conversion");
   if (collapse_escapes (delim))
     {

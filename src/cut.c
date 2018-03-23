@@ -620,7 +620,7 @@ main (int argc, char **argv)
             {
               mbstate_t mbs = { 0 };
               const char *s = optarg;
-              delim = grnext(&s, s + strlen(s), &mbs);
+              delim = grnext (&s, s + strlen (s), &mbs);
               if (delim.c == WEOF || *s != '\0')
                 FATAL_ERROR (_("the delimiter must be a single character."));
               delim_specified = true;
@@ -641,10 +641,10 @@ main (int argc, char **argv)
             }
           else
             {
-              grapheme tmp[strlen(optarg) + 1];
-              mbstogrs(tmp, optarg);
-              output_delimiter_length = grslen(tmp);
-              output_delimiter_string = grsdup(tmp);
+              grapheme tmp[strlen (optarg) + 1];
+              mbstogrs (tmp, optarg);
+              output_delimiter_length = grslen (tmp);
+              output_delimiter_string = grsdup (tmp);
             }
           break;
 

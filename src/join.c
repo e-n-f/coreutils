@@ -366,21 +366,21 @@ keycmp (struct line const *line1, struct line const *line2,
     return 1;
 
   grapheme tmp1[len1], tmp2[len2];
-  memcpy(tmp1, beg1, len1 * sizeof(grapheme));
-  memcpy(tmp2, beg2, len2 * sizeof(grapheme));
+  memcpy (tmp1, beg1, len1 * sizeof (grapheme));
+  memcpy (tmp2, beg2, len2 * sizeof (grapheme));
 
   if (ignore_case)
     {
       // As sort -f does
       for (size_t i = 0; i < len1; i++)
         {
-          wchar_t c = towupper(tmp1[i].c);
+          wchar_t c = towupper (tmp1[i].c);
           if (!tmp1[i].isbyte || c <= UCHAR_MAX)
             tmp1[i].c = c;
         }
       for (size_t i = 0; i < len2; i++)
         {
-          wchar_t c = towupper(tmp2[i].c);
+          wchar_t c = towupper (tmp2[i].c);
           if (!tmp2[i].isbyte || c <= UCHAR_MAX)
             tmp2[i].c = c;
         }
@@ -388,7 +388,7 @@ keycmp (struct line const *line1, struct line const *line2,
 
   if (hard_LC_COLLATE)
     return xgrmemcoll (tmp1, len1, tmp2, len2);
-  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof(grapheme));
+  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof (grapheme));
 
   if (diff)
     return diff;
@@ -432,7 +432,7 @@ check_order (const struct line *prev,
                       ? EXIT_FAILURE : 0),
                      0, _("%s:%"PRIuMAX": is not sorted: %s"),
                      g_names[whatfile - 1], line_no[whatfile - 1],
-                     grnstr(current->buf.buffer, len));
+                     grnstr (current->buf.buffer, len));
 
               /* If we get to here, the message was merely a warning.
                  Arrange to issue it only once per file.  */
@@ -1130,7 +1130,7 @@ main (int argc, char **argv)
             else
               {
                 mbstate_t mbs = { 0 };
-                const char *s = optarg, *end = optarg + strlen(optarg);
+                const char *s = optarg, *end = optarg + strlen (optarg);
                 newtab = grnext (&s, end, &mbs);
                 if (newtab.c == WEOF || (grpeek (&s, end, &mbs)).c != WEOF)
                  {

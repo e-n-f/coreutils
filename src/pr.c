@@ -852,15 +852,15 @@ parse_column_count (char const *s)
 static void
 separator_string (const char *optarg_S)
 {
-  wchar_t tmp[strlen(optarg_S) + 1];
-  if (mbstowcs(tmp, optarg_S, strlen(optarg_S) + 1) == (size_t) -1)
-    die (EXIT_FAILURE, errno, _("text conversion: %s"), quote(optarg_S));
+  wchar_t tmp[strlen (optarg_S) + 1];
+  if (mbstowcs (tmp, optarg_S, strlen (optarg_S) + 1) == (size_t) -1)
+    die (EXIT_FAILURE, errno, _("text conversion: %s"), quote (optarg_S));
 
   size_t len = wcslen (tmp);
   if (INT_MAX < len)
     integer_overflow ();
   col_sep_length = len;
-  col_sep_string = xwcsdup(tmp);
+  col_sep_string = xwcsdup (tmp);
 }
 
 int
@@ -1180,9 +1180,9 @@ getoptarg (const char *arg, char switch_char, wchar_t *character, int *number)
   if (*arg && !ISDIGIT (*arg))
     {
       mbstate_t mbs = { 0 };
-      grapheme c = grnext(&arg, arg + strlen(arg), &mbs);
+      grapheme c = grnext (&arg, arg + strlen (arg), &mbs);
       if (c.c == WEOF)
-        die (EXIT_FAILURE, errno, _("text conversion: %s"), quote(arg));
+        die (EXIT_FAILURE, errno, _("text conversion: %s"), quote (arg));
       *character = c.c;
     }
   if (*arg)
@@ -1309,7 +1309,7 @@ init_parameters (int number_of_files)
      We've to use 8 as the lower limit, if we use chars_per_default_tab = 8
      to expand a tab which is not an input_tab-char. */
   free (clump_buff);
-  clump_buff = xmalloc (MAX (8, chars_per_input_tab) * sizeof(grapheme));
+  clump_buff = xmalloc (MAX (8, chars_per_input_tab) * sizeof (grapheme));
 }
 
 /* Open the necessary files,
@@ -1928,7 +1928,7 @@ init_store_cols (void)
 
   free (buff);
   buff = xnmalloc (chars_if_truncate,
-                   (use_col_separator + 1) * sizeof(grapheme));
+                   (use_col_separator + 1) * sizeof (grapheme));
   buff_allocated = chars_if_truncate;  /* Tune this. */
   buff_allocated *= use_col_separator + 1;
 }
@@ -2044,7 +2044,7 @@ add_line_number (COLUMN *p)
   for (i = chars_per_number; i > 0; i--)
     {
       grapheme c;
-      c = grapheme_wchar (btowc(*s++));
+      c = grapheme_wchar (btowc (*s++));
       (p->char_func) (c);
     }
 

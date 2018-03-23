@@ -66,7 +66,7 @@ wfield_sep (wchar_t ch)
 
 #define WSTREQ_LEN(a, b, n) (wcsncmp (a, b, n) == 0)
 
-bool _GL_ATTRIBUTE_CONST ISWDIGIT(wchar_t c);
+bool _GL_ATTRIBUTE_CONST ISWDIGIT (wchar_t c);
 
 int wstrnumcmp (char const *, char const *, wint_t, wint_t);
 

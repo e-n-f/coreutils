@@ -109,7 +109,7 @@ adjust_column (size_t column, grapheme c)
       else if (c.c == L'\t')
         column += TAB_WIDTH - column % TAB_WIDTH;
       else
-        column += charwidth(c.c);
+        column += charwidth (c.c);
     }
   else
     {
@@ -117,7 +117,7 @@ adjust_column (size_t column, grapheme c)
       if (c.isbyte)
         column++;
       else
-        column += wctomb(tmp, c.c);
+        column += wctomb (tmp, c.c);
     }
   return column;
 }
@@ -206,7 +206,7 @@ fold_file (char const *filename, size_t width)
                   /* Move the remainder to the beginning of the next line.
                      The areas being copied here might overlap. */
                   memmove (line_out, line_out + logical_end,
-                           (offset_out - logical_end) * sizeof(grapheme));
+                           (offset_out - logical_end) * sizeof (grapheme));
                   offset_out -= logical_end;
                   size_t i;
                   for (column = i = 0; i < offset_out; i++)

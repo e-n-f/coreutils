@@ -236,10 +236,10 @@ parse_tab_stops_wc (wchar_t const *stops)
 void
 parse_tab_stops (char const *stops)
 {
-  wchar_t tmp[strlen(stops) + 1];
-  if (mbstowcs(tmp, stops, strlen(stops) + 1) == (size_t) -1)
+  wchar_t tmp[strlen (stops) + 1];
+  if (mbstowcs(tmp, stops, strlen (stops) + 1) == (size_t) -1)
     die (EXIT_FAILURE, 0, _("multibyte string conversion"));
-  parse_tab_stops_wc(tmp);
+  parse_tab_stops_wc (tmp);
 }
 
 /* Check that the list of tab stops TABS, with ENTRIES entries,

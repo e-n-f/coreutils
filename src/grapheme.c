@@ -42,7 +42,7 @@ grnext (const char **s, const char *end, mbstate_t *mbs)
 
   wchar_t c;
   mbstate_t mbs_copy = *mbs;
-  size_t n = mbrtowc(&c, *s, end - *s, &mbs_copy);
+  size_t n = mbrtowc (&c, *s, end - *s, &mbs_copy);
 
   if (n == 0)
     {
@@ -54,7 +54,7 @@ grnext (const char **s, const char *end, mbstate_t *mbs)
       for (j = 1; j <= end - *s; j++)
         {
           mbs_copy = *mbs;
-          if (mbrtowc(&c, *s, end - *s, &mbs_copy) == 0)
+          if (mbrtowc (&c, *s, end - *s, &mbs_copy) == 0)
             break;
         }
 
@@ -97,20 +97,20 @@ grpeek (const char **s, const char *end, mbstate_t *mbs)
 {
   const char *tmps = *s;
   mbstate_t tmpmbs = *mbs;
-  return grnext(&tmps, end, &tmpmbs);
+  return grnext (&tmps, end, &tmpmbs);
 }
 
 grapheme
-grafter(const char **s, const char *end, mbstate_t *state)
+grafter (const char **s, const char *end, mbstate_t *state)
 {
-  grnext(s, end, state);
-  return grpeek(s, end, state);
+  grnext (s, end, state);
+  return grpeek (s, end, state);
 }
 
 /**** Binary-tolerant wide character I/O */
 
 static grapheme
-fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
+fgetgr_internal (FILE *f, mbstate_t *mbs, bool peek, size_t *count)
 {
   char tmp[MB_CUR_MAX];
   mbstate_t copy;
@@ -118,7 +118,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
   // Special case for the common case of a valid character
   // from just one byte.
 
-  int b = getc(f);
+  int b = getc (f);
   if (b == EOF)
     {
       *count = 0;
@@ -128,10 +128,10 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
   tmp[0] = b;
   copy = *mbs;
   wchar_t ch;
-  if (mbrtowc(&ch, tmp, 1, &copy) == 1)
+  if (mbrtowc (&ch, tmp, 1, &copy) == 1)
     {
       if (peek)
-        ungetc((unsigned char) b, f);
+        ungetc ((unsigned char) b, f);
 
       *count = 1;
       return grapheme_wchar (ch);
@@ -143,7 +143,7 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
   size_t i;
   for (i = 1; i < MB_CUR_MAX; i++)
     {
-      int c = getc(f);
+      int c = getc (f);
       if (c == EOF)
         break;
       tmp[i] = c;
@@ -153,20 +153,20 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
   grapheme c;
 
   copy = *mbs;
-  c = grnext(&s, s + i, &copy);
+  c = grnext (&s, s + i, &copy);
   *count = s - tmp;
 
   if (peek)
     {
       // Put everything back
       for (size_t k = i; k > 0; k--)
-        ungetc((unsigned char) tmp[k - 1], f);
+        ungetc ((unsigned char) tmp[k - 1], f);
     }
   else
     {
       // Put unused bytes back
       for (size_t k = i; k > s - tmp; k--)
-        ungetc((unsigned char) tmp[k - 1], f);
+        ungetc ((unsigned char) tmp[k - 1], f);
 
       *mbs = copy;
     }
@@ -175,31 +175,31 @@ fgetgr_internal(FILE *f, mbstate_t *mbs, bool peek, size_t *count)
 }
 
 grapheme
-fgetgr(FILE *f, mbstate_t *mbs)
+fgetgr (FILE *f, mbstate_t *mbs)
 {
   size_t count;
-  return fgetgr_internal(f, mbs, false, &count);
+  return fgetgr_internal (f, mbs, false, &count);
 }
 
 grapheme
-fgetgr_count(FILE *f, mbstate_t *mbs, size_t *count)
+fgetgr_count (FILE *f, mbstate_t *mbs, size_t *count)
 {
-  return fgetgr_internal(f, mbs, false, count);
+  return fgetgr_internal (f, mbs, false, count);
 }
 
 grapheme
-fpeekgr(FILE *f, mbstate_t *mbs)
+fpeekgr (FILE *f, mbstate_t *mbs)
 {
   size_t count;
-  return fgetgr_internal(f, mbs, true, &count);
+  return fgetgr_internal (f, mbs, true, &count);
 }
 
 grapheme
-fputgr(grapheme c, FILE *f)
+fputgr (grapheme c, FILE *f)
 {
   if (c.isbyte)
     {
-      int ret = putc((unsigned char) c.c, f);
+      int ret = putc ((unsigned char) c.c, f);
       if (ret == EOF)
         return grapheme_wchar (WEOF);
 
@@ -210,7 +210,7 @@ fputgr(grapheme c, FILE *f)
       // TODO: Deal with different encoding states
 
       char tmp[MB_CUR_MAX];
-      int n = wctomb(tmp, c.c);
+      int n = wctomb (tmp, c.c);
 
       if (n < 0)
         {
@@ -220,7 +220,7 @@ fputgr(grapheme c, FILE *f)
               // where 0x80-0xFF are sometimes not
               // regarded as characters.
 
-              int ret = putc(c.c, f);
+              int ret = putc (c.c, f);
               if (ret == EOF)
                 c.c = WEOF;
               return c;
@@ -234,7 +234,7 @@ fputgr(grapheme c, FILE *f)
 
       for (size_t i = 0; i < n; i++)
         {
-          int ret = putc(tmp[i], f);
+          int ret = putc (tmp[i], f);
           if (ret == EOF)
             {
               c.c = WEOF;
@@ -248,26 +248,26 @@ fputgr(grapheme c, FILE *f)
 
 wchar_t fputwcgr (wchar_t c, FILE *f)
 {
-  return fputgr(grapheme_wchar (c), f).c;
+  return fputgr (grapheme_wchar (c), f).c;
 }
 
 grapheme
-putgrapheme(grapheme c)
+putgrapheme (grapheme c)
 {
-  return fputgr(c, stdout);
+  return fputgr (c, stdout);
 }
 
 grapheme
-getgrapheme(mbstate_t *mbs)
+getgrapheme (mbstate_t *mbs)
 {
-  return fgetgr(stdin, mbs);
+  return fgetgr (stdin, mbs);
 }
 
 
 /**** Grapheme/wide version of memchr */
 
 grapheme * _GL_ATTRIBUTE_PURE
-grmemchr(grapheme *haystack, wchar_t needle, size_t n)
+grmemchr (grapheme *haystack, wchar_t needle, size_t n)
 {
   for (size_t i = 0; i < n; i++) {
     if (haystack[i].c == needle) {
@@ -289,9 +289,9 @@ grslen (const grapheme *s)
 grapheme *
 grsdup (const grapheme *s)
 {
-  size_t n = grslen(s);
-  grapheme *out = xmalloc((n + 1) * sizeof(grapheme));
-  memcpy(out, s, (n + 1) * sizeof(grapheme));
+  size_t n = grslen (s);
+  grapheme *out = xmalloc ((n + 1) * sizeof (grapheme));
+  memcpy (out, s, (n + 1) * sizeof (grapheme));
   return out;
 }
 
@@ -314,14 +314,14 @@ grapheme_byte (unsigned char c)
 }
 
 void
-mbstogrs(grapheme *out, const char *in)
+mbstogrs (grapheme *out, const char *in)
 {
-  const char *end = in + strlen(in);
+  const char *end = in + strlen (in);
   mbstate_t mbs = { 0 };
   grapheme g;
   size_t n = 0;
 
-  while ((g = grnext(&in, end, &mbs)).c != WEOF)
+  while ((g = grnext (&in, end, &mbs)).c != WEOF)
     out[n++] = g;
 
   out[n] = grapheme_wchar (L'\0');
