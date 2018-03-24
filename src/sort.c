@@ -2008,18 +2008,13 @@ static char const unit_order[UCHAR_LIM] =
    decimal_point chars only.  Returns the highest digit found in the number,
    or '\0' if no digit has been found.  Upon return *number points at the
    character that immediately follows after the given number.  */
-static unsigned char
+static wchar_t
 traverse_raw_number (char const **number)
 {
   char const *p = *number;
   wchar_t max_digit = L'\0';
   bool ends_with_thousands_sep = false;
   const char *pend = p + strlen (p);
-
-  /* Scan to end of number.
-     Decimals or separators not followed by digits stop the scan.
-     Numbers ending in decimals or separators are thus considered
-     to be lacking in units. */
 
   grapheme ch;
   mbstate_t mbs = { 0 };
@@ -2030,39 +2025,34 @@ traverse_raw_number (char const **number)
   // One character back from the current end
   const char *p1 = p;
 
+  /* Scan to end of number.
+     Decimals or separators not followed by digits stop the scan.
+     Numbers ending in decimals or separators are thus considered
+     to be lacking in units. */
+
   while (true)
     {
-      ch = grpeek (&p, pend, &mbs);
-      if (ch.c == WEOF)
-        break;
-      if (!isdigit (ch.c))
-        {
-          // still advances past the non-digit
+      p2 = p1;
+      p1 = p;
+      ch = grnext (&p, pend, &mbs);
 
-          p2 = p1, p1 = p;
-          ch = grnext (&p, pend, &mbs);
-          break;
-        }
+      if (!iswdigit (ch.c))
+        break;
 
       if (max_digit < ch.c)
         max_digit = ch.c;
 
-      // XXX Could this have ever worked? This is inside the loop
-      // that checks for ISDIGIT, so it would only run if the
-      // thousands_separator is a digit.
-
       /* Allow to skip only one occurrence of thousands_sep to avoid finding
          the unit in the next column in case thousands_sep matches as blank
          and is used as column delimiter.  */
-      ends_with_thousands_sep = (ch.c == thousands_sep);
+      ends_with_thousands_sep = (thousands_sep != WEOF)
+          && (grpeek (&p, pend, &mbs).c == thousands_sep);
       if (ends_with_thousands_sep)
         {
-          p2 = p1, p1 = p;
-          ch = grnext (&p, pend, &mbs);
+          p2 = p1;
+          p1 = p;
+          grnext (&p, pend, &mbs);
         }
-
-      p2 = p1, p1 = p;
-      ch = grnext (&p, pend, &mbs);
     }
 
   if (ends_with_thousands_sep)
@@ -2072,10 +2062,19 @@ traverse_raw_number (char const **number)
       return max_digit;
     }
 
-  if (ch.c == decimal_point)
-    while (iswdigit ((ch = grnext (&p, pend, &mbs)).c))
-      if (max_digit < ch.c)
-        max_digit = ch.c;
+  if (decimal_point != WEOF && ch.c == decimal_point)
+    while (true)
+      {
+        p2 = p1;
+        p1 = p;
+        ch = grnext (&p, pend, &mbs);
+
+        if (!iswdigit (ch.c))
+          break;
+
+        if (max_digit < ch.c)
+          max_digit = ch.c;
+    }
 
   *number = p1;
   return max_digit;
@@ -2091,8 +2090,8 @@ find_unit_order (char const *number)
 {
   bool minus_sign = (*number == '-');
   char const *p = number + minus_sign;
-  unsigned char max_digit = traverse_raw_number (&p);
-  if ('0' < max_digit)
+  wchar_t max_digit = traverse_raw_number (&p);
+  if (L'0' < max_digit)
     {
       unsigned char ch = *p;
       int order = unit_order[ch];
@@ -2520,8 +2519,8 @@ debug_key (struct line const *line, struct keyfield const *key)
           else if (key->numeric || key->human_numeric)
             {
               char const *p = beg + (beg < lim && *beg == '-');
-              unsigned char max_digit = traverse_raw_number (&p);
-              if ('0' <= max_digit)
+              wchar_t max_digit = traverse_raw_number (&p);
+              if (L'0' <= max_digit)
                 {
                   unsigned char ch = *p;
                   tighter_lim = (char *) p
