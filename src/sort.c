@@ -2211,48 +2211,39 @@ getmonth (char const *month, char **ea)
 {
   size_t lo = 0;
   size_t hi = MONTHS_PER_YEAR;
-  char const *mend = month + strlen (month);
+  char const *end = month + strlen (month);
   mbstate_t mbs = { 0 };
-  grapheme c;
 
-  for (; (c = grpeek (&month, mend, &mbs)).c != WEOF;
-       c = grnext (&month, mend, &mbs))
-    {
-      if (!blanks (c.c))
-        break;
-    }
+  while (blanks (grpeek (&month, end, &mbs).c))
+    grnext (&month, end, &mbs);
 
   do
     {
       size_t ix = (lo + hi) / 2;
       char const *m = month;
+      mbstate_t mbs1 = mbs;
       wchar_t const *n = monthtab[ix].name;
 
       while (true)
         {
-          grapheme mc;
-          mc = grpeek (&m, mend, &mbs);
-          if (mc.c == WEOF)
-            mc = grapheme_wchar (L'\0');
-
           if (!*n)
             {
               if (ea)
                 *ea = (char *) m;
               return monthtab[ix].val;
             }
-          if (towupper (mc.c) < *n)
+          if (fold_toupper (grpeek (&m, end, &mbs1).c) < *n)
             {
               hi = ix;
               break;
             }
-          else if (towupper (mc.c) > *n)
+          else if (fold_toupper (grpeek (&m, end, &mbs1).c) > *n)
             {
               lo = ix + 1;
               break;
             }
-
-          mc = grnext (&m, mend, &mbs);
+          grnext (&m, end, &mbs1);
+          n++;
         }
     }
   while (lo < hi);
