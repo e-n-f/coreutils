@@ -17,15 +17,7 @@
 
 #include <config.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <wchar.h>
-#include <errno.h>
-#include <stdbool.h>
-#include <limits.h>
-
+#include "system.h"
 #include "gettext.h"
 #define _(msgid) gettext (msgid)
 
