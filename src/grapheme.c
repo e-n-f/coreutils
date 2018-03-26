@@ -20,9 +20,7 @@
 #include <config.h>
 
 #include "system.h"
-#include "xalloc.h"
 #include "grapheme.h"
-#include "exitfail.h"
 
 grapheme
 grnext (const char **s, const char *end, mbstate_t *mbs)

@@ -18,10 +18,8 @@
 #include <config.h>
 
 #include "system.h"
-#include "gettext.h"
 #define _(msgid) gettext (msgid)
 
-#include "xalloc.h"
 #include "grapheme.h"
 #include "widetext.h"
 #include "error.h"

@@ -24,7 +24,6 @@
 #include <stddef.h>
 #include <wchar.h>
 #include <wctype.h>
-#include <stdbool.h>
 
 typedef struct grapheme {
   wint_t c;
