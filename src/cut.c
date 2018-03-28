@@ -28,6 +28,8 @@
 #include <assert.h>
 #include <getopt.h>
 #include <sys/types.h>
+#include <wchar.h>
+#include <wctype.h>
 #include "system.h"
 
 #include "error.h"
@@ -35,6 +37,8 @@
 #include "getndelim2.h"
 #include "hash.h"
 #include "xstrndup.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #include "set-fields.h"
 
@@ -44,7 +48,8 @@
 #define AUTHORS \
   proper_name ("David M. Ihnat"), \
   proper_name ("David MacKenzie"), \
-  proper_name ("Jim Meyering")
+  proper_name ("Jim Meyering"), \
+  proper_name ("Eric Fischer")
 
 #define FATAL_ERROR(Message)						\
   do									\
@@ -68,7 +73,7 @@ static struct field_range_pair *current_rp;
    is followed by a delimiter or a newline before any of it may be
    output.  Otherwise, cut_fields can do the job without using this
    buffer.  */
-static char *field_1_buffer;
+static grapheme *field_1_buffer;
 
 /* The number of bytes allocated for FIELD_1_BUFFER.  */
 static size_t field_1_bufsize;
@@ -79,6 +84,12 @@ enum operating_mode
 
     /* Output characters that are in the given bytes. */
     byte_mode,
+
+    /* Output characters that are in the given characters. */
+    character_mode,
+
+    /* Output characters that are in the given characters, indexed by bytes. */
+    character_byte_mode,
 
     /* Output the given delimiter-separated fields. */
     field_mode
@@ -96,10 +107,11 @@ static bool suppress_non_delimited;
 static bool complement;
 
 /* The delimiter character for field mode. */
-static unsigned char delim;
+static grapheme delim;
 
 /* The delimiter for each line/record. */
-static unsigned char line_delim = '\n';
+static unsigned char line_delim_byte = '\n';
+static wchar_t line_delim_wchar = L'\n';
 
 /* True if the --output-delimiter=STRING option was specified.  */
 static bool output_delimiter_specified;
@@ -109,7 +121,7 @@ static size_t output_delimiter_length;
 
 /* The output field separator string.  Defaults to the 1-character
    string consisting of the input delimiter.  */
-static char *output_delimiter_string;
+static const grapheme *output_delimiter_string;
 
 /* True if we have ever read standard input. */
 static bool have_read_stdin;
@@ -126,6 +138,7 @@ static struct option const longopts[] =
 {
   {"bytes", required_argument, NULL, 'b'},
   {"characters", required_argument, NULL, 'c'},
+  {"no-character-splitting", no_argument, NULL, 'n'},
   {"fields", required_argument, NULL, 'f'},
   {"delimiter", required_argument, NULL, 'd'},
   {"only-delimited", no_argument, NULL, 's'},
@@ -164,7 +177,7 @@ Print selected parts of lines from each FILE to standard output.\n\
   -f, --fields=LIST       select only these fields;  also print any line\n\
                             that contains no delimiter character, unless\n\
                             the -s option is specified\n\
-  -n                      (ignored)\n\
+  -n, --no-character-splitting  don't split characters with --bytes\n\
 "), stdout);
       fputs (_("\
       --complement        complement the set of selected bytes, characters\n\
@@ -246,7 +259,7 @@ cut_bytes (FILE *stream)
 
       c = getc (stream);
 
-      if (c == line_delim)
+      if (c == line_delim_byte)
         {
           putchar (c);
           byte_idx = 0;
@@ -256,7 +269,7 @@ cut_bytes (FILE *stream)
       else if (c == EOF)
         {
           if (byte_idx > 0)
-            putchar (line_delim);
+            putchar (line_delim_byte);
           break;
         }
       else
@@ -268,8 +281,8 @@ cut_bytes (FILE *stream)
                 {
                   if (print_delimiter && is_range_start_index (byte_idx))
                     {
-                      fwrite (output_delimiter_string, sizeof (char),
-                              output_delimiter_length, stdout);
+                      for (size_t i = 0; i < output_delimiter_length; i++)
+                        fputgr (output_delimiter_string[i], stdout);
                     }
                   print_delimiter = true;
                 }
@@ -280,24 +293,84 @@ cut_bytes (FILE *stream)
     }
 }
 
+/* Read from stream STREAM, printing to standard output
+   any selected characters.  */
+
+static void
+cut_characters (FILE *stream, bool use_bytes)
+{
+  size_t character_idx;	/* Number of bytes in the line so far. */
+  /* Whether to begin printing delimiters between ranges for the current line.
+     Set after we've begun printing data corresponding to the first range.  */
+  bool print_delimiter;
+
+  character_idx = 0;
+  print_delimiter = false;
+  current_rp = frp;
+  mbstate_t mbs = { 0 };
+
+  while (true)
+    {
+      grapheme c;		/* Each character from the file. */
+      size_t count;
+
+      c = fgetgr_count (stream, &mbs, &count);
+      if (!use_bytes)
+        count = 1;
+
+      if (c.c == line_delim_wchar)
+        {
+          putgrapheme (c);
+          character_idx = 0;
+          print_delimiter = false;
+          current_rp = frp;
+        }
+      else if (c.c == WEOF)
+        {
+          if (character_idx > 0)
+            fputwcgr (line_delim_wchar, stdout);
+          break;
+        }
+      else
+        {
+          for (size_t i = 0; i < count; i++)
+            next_item (&character_idx);
+          if (print_kth (character_idx))
+            {
+              if (output_delimiter_specified)
+                {
+                  if (print_delimiter && is_range_start_index (character_idx))
+                    {
+                      for (size_t i = 0; i < output_delimiter_length; i++)
+                        fputgr (output_delimiter_string[i], stdout);
+                    }
+                  print_delimiter = true;
+                }
+
+              putgrapheme (c);
+            }
+        }
+    }
+}
+
 /* Read from stream STREAM, printing to standard output any selected fields.  */
 
 static void
 cut_fields (FILE *stream)
 {
-  int c;
+  grapheme c;
   size_t field_idx = 1;
   bool found_any_selected_field = false;
   bool buffer_first_field;
+  mbstate_t mbs = { 0 };
 
   current_rp = frp;
 
-  c = getc (stream);
-  if (c == EOF)
+  c = fpeekgr (stream, &mbs);
+  if (c.c == WEOF)
     return;
 
-  ungetc (c, stream);
-  c = 0;
+  c.c = L'\0';
 
   /* To support the semantics of the -s flag, we may have to buffer
      all of the first field to determine whether it is 'delimited.'
@@ -314,8 +387,9 @@ cut_fields (FILE *stream)
           ssize_t len;
           size_t n_bytes;
 
-          len = getndelim2 (&field_1_buffer, &field_1_bufsize, 0,
-                            GETNLINE_NO_LIMIT, delim, line_delim, stream);
+          len = grgetndelim2 (&field_1_buffer, &field_1_bufsize, 0,
+                              GETNLINE_NO_LIMIT, delim.c, line_delim_wchar,
+                              stream, &mbs);
           if (len < 0)
             {
               free (field_1_buffer);
@@ -328,12 +402,12 @@ cut_fields (FILE *stream)
           n_bytes = len;
           assert (n_bytes != 0);
 
-          c = 0;
+          c.c = L'\0';
 
           /* If the first field extends to the end of line (it is not
              delimited) and we are printing all non-delimited lines,
              print this one.  */
-          if (to_uchar (field_1_buffer[n_bytes - 1]) != delim)
+          if (field_1_buffer[n_bytes - 1].c != delim.c)
             {
               if (suppress_non_delimited)
                 {
@@ -341,26 +415,27 @@ cut_fields (FILE *stream)
                 }
               else
                 {
-                  fwrite (field_1_buffer, sizeof (char), n_bytes, stdout);
+                  for (size_t i = 0; i < n_bytes; i++)
+                    putgrapheme (field_1_buffer[i]);
                   /* Make sure the output line is newline terminated.  */
-                  if (field_1_buffer[n_bytes - 1] != line_delim)
-                    putchar (line_delim);
-                  c = line_delim;
+                  if (field_1_buffer[n_bytes - 1].c != line_delim_wchar)
+                    fputwcgr (line_delim_wchar, stdout);
+                  c = grapheme_wchar (line_delim_wchar);
                 }
               continue;
             }
           if (print_kth (1))
             {
               /* Print the field, but not the trailing delimiter.  */
-              fwrite (field_1_buffer, sizeof (char), n_bytes - 1, stdout);
+              for (size_t i = 0; i < n_bytes - 1; i++)
+                putgrapheme (field_1_buffer[i]);
 
               /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
-              if (delim == line_delim)
+              if (delim.c == line_delim_wchar)
                 {
-                  int last_c = getc (stream);
-                  if (last_c != EOF)
+                  grapheme last_c = fpeekgr (stream, &mbs);
+                  if (last_c.c != WEOF)
                     {
-                      ungetc (last_c, stream);
                       found_any_selected_field = true;
                     }
                 }
@@ -370,53 +445,53 @@ cut_fields (FILE *stream)
           next_item (&field_idx);
         }
 
-      int prev_c = c;
+      grapheme prev_c = c;
 
       if (print_kth (field_idx))
         {
           if (found_any_selected_field)
             {
-              fwrite (output_delimiter_string, sizeof (char),
-                      output_delimiter_length, stdout);
+              for (size_t i = 0; i < output_delimiter_length; i++)
+                fputgr (output_delimiter_string[i], stdout);
             }
           found_any_selected_field = true;
 
-          while ((c = getc (stream)) != delim && c != line_delim && c != EOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c
+                 && c.c != line_delim_wchar && c.c != WEOF)
             {
-              putchar (c);
+              putgrapheme (c);
               prev_c = c;
             }
         }
       else
         {
-          while ((c = getc (stream)) != delim && c != line_delim && c != EOF)
+          while ((c = fgetgr (stream, &mbs)).c != delim.c
+                 && c.c != line_delim_wchar && c.c != WEOF)
             {
               prev_c = c;
             }
         }
 
       /* With -d$'\n' don't treat the last '\n' as a delimiter.  */
-      if (delim == line_delim && c == delim)
+      if (delim.c == line_delim_wchar && c.c == delim.c)
         {
-          int last_c = getc (stream);
-          if (last_c != EOF)
-            ungetc (last_c, stream);
-          else
+          grapheme last_c = fpeekgr (stream, &mbs);
+          if (last_c.c == WEOF)
             c = last_c;
         }
 
-      if (c == delim)
+      if (c.c == delim.c)
         next_item (&field_idx);
-      else if (c == line_delim || c == EOF)
+      else if (c.c == line_delim_wchar || c.c == WEOF)
         {
           if (found_any_selected_field
               || !(suppress_non_delimited && field_idx == 1))
             {
-              if (c == line_delim || prev_c != line_delim
-                  || delim == line_delim)
-                putchar (line_delim);
+              if (c.c == line_delim_wchar || prev_c.c != line_delim_wchar
+                  || delim.c == line_delim_wchar)
+                fputwcgr (line_delim_wchar, stdout);
             }
-          if (c == EOF)
+          if (c.c == WEOF)
             break;
           field_idx = 1;
           current_rp = frp;
@@ -430,6 +505,10 @@ cut_stream (FILE *stream)
 {
   if (operating_mode == byte_mode)
     cut_bytes (stream);
+  else if (operating_mode == character_mode)
+    cut_characters (stream, false);
+  else if (operating_mode == character_byte_mode)
+    cut_characters (stream, true);
   else
     cut_fields (stream);
 }
@@ -483,6 +562,7 @@ main (int argc, char **argv)
   bool ok;
   bool delim_specified = false;
   char *spec_list_string IF_LINT ( = NULL);
+  bool nosplit = false;
 
   initialize_main (&argc, &argv);
   set_program_name (argv[0]);
@@ -497,7 +577,7 @@ main (int argc, char **argv)
   /* By default, all non-delimited lines are printed.  */
   suppress_non_delimited = false;
 
-  delim = '\0';
+  delim = grapheme_wchar (L'\0');
   have_read_stdin = false;
 
   while ((optc = getopt_long (argc, argv, "b:c:d:f:nsz", longopts, NULL)) != -1)
@@ -505,11 +585,18 @@ main (int argc, char **argv)
       switch (optc)
         {
         case 'b':
-        case 'c':
           /* Build the byte list. */
           if (operating_mode != undefined_mode)
             FATAL_ERROR (_("only one type of list may be specified"));
           operating_mode = byte_mode;
+          spec_list_string = optarg;
+          break;
+
+        case 'c':
+          /* Build the character list. */
+          if (operating_mode != undefined_mode)
+            FATAL_ERROR (_("only one type of list may be specified"));
+          operating_mode = character_mode;
           spec_list_string = optarg;
           break;
 
@@ -524,22 +611,45 @@ main (int argc, char **argv)
         case 'd':
           /* New delimiter. */
           /* Interpret -d '' to mean 'use the NUL byte as the delimiter.'  */
-          if (optarg[0] != '\0' && optarg[1] != '\0')
-            FATAL_ERROR (_("the delimiter must be a single character"));
-          delim = optarg[0];
-          delim_specified = true;
+          if (optarg[0] == '\0')
+            {
+              delim = grapheme_wchar (L'\0');
+              delim_specified = true;
+            }
+          else
+            {
+              mbstate_t mbs = { 0 };
+              const char *s = optarg;
+              delim = grnext (&s, s + strlen (s), &mbs);
+              if (delim.c == WEOF || *s != '\0')
+                FATAL_ERROR (_("the delimiter must be a single character."));
+              delim_specified = true;
+            }
           break;
 
         case OUTPUT_DELIMITER_OPTION:
           output_delimiter_specified = true;
           /* Interpret --output-delimiter='' to mean
              'use the NUL byte as the delimiter.'  */
-          output_delimiter_length = (optarg[0] == '\0'
-                                     ? 1 : strlen (optarg));
-          output_delimiter_string = xstrdup (optarg);
+          if (optarg[0] == '\0')
+            {
+              static grapheme d[2];
+              d[0] = grapheme_wchar (L'\0');
+              d[1] = grapheme_wchar (L'\0');
+              output_delimiter_string = d;
+              output_delimiter_length = 1;
+            }
+          else
+            {
+              grapheme tmp[strlen (optarg) + 1];
+              mbstogrs (tmp, optarg);
+              output_delimiter_length = grslen (tmp);
+              output_delimiter_string = grsdup (tmp);
+            }
           break;
 
         case 'n':
+          nosplit = true;
           break;
 
         case 's':
@@ -547,7 +657,8 @@ main (int argc, char **argv)
           break;
 
         case 'z':
-          line_delim = '\0';
+          line_delim_byte = '\0';
+          line_delim_wchar = L'\0';
           break;
 
         case COMPLEMENT_OPTION:
@@ -562,6 +673,9 @@ main (int argc, char **argv)
           usage (EXIT_FAILURE);
         }
     }
+
+  if (operating_mode == byte_mode && nosplit)
+    operating_mode = character_byte_mode;
 
   if (operating_mode == undefined_mode)
     FATAL_ERROR (_("you must specify a list of bytes, characters, or fields"));
@@ -579,14 +693,14 @@ main (int argc, char **argv)
               | (complement ? SETFLD_COMPLEMENT : 0) );
 
   if (!delim_specified)
-    delim = '\t';
+    delim = grapheme_wchar (L'\t');
 
   if (output_delimiter_string == NULL)
     {
-      static char dummy[2];
-      dummy[0] = delim;
-      dummy[1] = '\0';
-      output_delimiter_string = dummy;
+      static grapheme d[2];
+      d[0] = delim;
+      d[1] = grapheme_wchar (L'\0');
+      output_delimiter_string = d;
       output_delimiter_length = 1;
     }
 
