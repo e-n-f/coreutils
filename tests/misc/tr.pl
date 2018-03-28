@@ -22,6 +22,10 @@ my $prog = 'tr';
 # Turn off localization of executable's output.
 @ENV{qw(LANGUAGE LANG LC_ALL)} = ('C') x 3;
 
+my $mb_locale = $ENV{LOCALE_FR_UTF8};
+! defined $mb_locale || $mb_locale eq 'none'
+  and $mb_locale = 'C';
+
 my $map_all_to_1 =
   "$prog: when translating with complemented character classes,\n"
     . "string2 must map all characters in the domain to one\n";
@@ -159,6 +163,46 @@ my @Tests =
   # Up to coreutils-6.9, this would provoke a failed assertion.
   ['no-abort-1', qw(-c a '[b*256]'), {IN=>'abc'}, {OUT=>'abb'}],
 );
+
+
+# Repeat same tests in a multibyte locale.
+# Use the undocumented ---force-multibyte option to bypass C/POSIX optimization.
+#
+# NOTE about the ERR_SUBST:
+# The error tests above (e1/e2/e3/e4) expect error messages in C locale
+# having single-quote character (ASCII 0x27).
+# In UTF-8 locale, the error messages will use:
+#  'LEFT SINGLE QUOTATION MARK'  (U+2018) (UTF8: 0xE2 0x80 0x98)
+#  'RIGHT SINGLE QUOTATION MARK' (U+2019) (UTF8: 0xE2 0x80 0x99)
+# So we replace them with ascii single-quote and the results will
+# match the expected error string.
+#
+my @new;
+if ($mb_locale ne 'C')
+  {
+    foreach my $t (@Tests)
+      {
+        my ($tname,$cmd,@params) = @$t;
+
+        # test 'w' modifies 8-bit octets directly,
+        # can not be tested with multibyte processing.
+        # 'tr' should detect this and always use single-byte code path.
+        $cmd = "---force-multibyte " . $cmd unless $tname eq "w";
+
+        $tname .= "-mb";
+
+        push @params, ({ENV => "LC_ALL=$mb_locale"},
+                       {ERR_SUBST => "s/\xe2\x80[\x98\x99]/'/g"});
+        unshift @params, $tname, $cmd;
+
+        push @new, \@params;
+      }
+  }
+push @Tests, @new;
+
+
+
+
 
 @Tests = triple_test \@Tests;
 

@@ -133,6 +133,8 @@ my @Tests =
   # Prior to 1.22i, you couldn't use a delimiter that would sign-extend.
   ['8bit-delim', '-d', "\255", '--out=_', '-f2,3', {IN=>"a\255b\255c\n"},
    {OUT=>"b_c\n"}],
+  ['8bit-delim-2', '-d', "\255", '-f2,3', {IN=>"a\255b\255c\n"},
+   {OUT=>"b\255c\n"}],
 
   # newline processing for fields
   ['newline-1', '-f1-', {IN=>"a\nb"}, {OUT=>"a\nb\n"}],
@@ -229,6 +231,19 @@ my @Tests =
                                         {IN=>"1234\n"}, {OUT=>"1234\n"}],
  );
 
+my @Sbtests =
+  (
+  );
+
+my @Mbtests =
+  (
+  ['wide-delim', '-d', "⇒", '--out=_', '-f2,3', {IN=>"a⇒b⇒c\n"},
+   {OUT=>"b_c\n"}],
+  ['wide-delim-2', '-d', "⇒", '-f2,3', {IN=>"a⇒b⇒c\n"},
+   {OUT=>"b⇒c\n"}],
+  );
+
+
 if ($mb_locale ne 'C')
   {
     # Duplicate each test vector, appending "-mb" to the test name and
@@ -241,6 +256,19 @@ if ($mb_locale ne 'C')
         my $test_name = shift @new_t;
 
         push @new, ["$test_name-mb", @new_t, {ENV => "LC_ALL=$mb_locale"}];
+      }
+
+    foreach my $t (@Mbtests)
+      {
+        my @new_t = @$t;
+        my $test_name = shift @new_t;
+
+        push @new, ["$test_name-mb", @new_t, {ENV => "LC_ALL=$mb_locale"}];
+      }
+
+    foreach my $t (@Sbtests)
+      {
+        push @new, $t;
       }
     push @Tests, @new;
   }
