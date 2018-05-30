@@ -29,6 +29,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <assert.h>
+#include <wchar.h>
+#include <wctype.h>
 #include "system.h"
 #include "argmatch.h"
 #include "die.h"
@@ -51,8 +53,11 @@
 #include "stdlib--.h"
 #include "strnumcmp.h"
 #include "xmemcoll.h"
+#include "memcoll.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #ifndef RLIMIT_DATA
 struct rlimit { size_t rlim_cur; };
@@ -64,7 +69,8 @@ struct rlimit { size_t rlim_cur; };
 
 #define AUTHORS \
   proper_name ("Mike Haertel"), \
-  proper_name ("Paul Eggert")
+  proper_name ("Paul Eggert"), \
+  proper_name ("Eric Fischer")
 
 #if HAVE_LANGINFO_CODESET
 # include <langinfo.h>
@@ -164,10 +170,10 @@ enum
   };
 
 /* The representation of the decimal point in the current locale.  */
-static int decimal_point;
+static wint_t decimal_point;
 
-/* Thousands separator; if -1, then there isn't one.  */
-static int thousands_sep;
+/* Thousands separator; if WEOF, then there isn't one.  */
+static wint_t thousands_sep;
 
 /* Nonzero if the corresponding locales are hard.  */
 static bool hard_LC_COLLATE;
@@ -215,8 +221,8 @@ struct keyfield
   size_t schar;			/* Additional characters to skip. */
   size_t eword;			/* Zero-origin last 'word' of key. */
   size_t echar;			/* Additional characters in field. */
-  bool const *ignore;		/* Boolean array of characters to ignore. */
-  char const *translate;	/* Translation applied to characters. */
+  bool (*ignore)(wchar_t);	/* Boolean array of characters to ignore. */
+  wchar_t (*translate)(wchar_t);	/* Translation applied to characters. */
   bool skipsblanks;		/* Skip leading blanks when finding start.  */
   bool skipeblanks;		/* Skip leading blanks when finding end.  */
   bool numeric;			/* Flag for numeric comparison.  Handle
@@ -236,7 +242,7 @@ struct keyfield
 
 struct month
 {
-  char const *name;
+  wchar_t const *name;
   int val;
 };
 
@@ -277,16 +283,16 @@ static struct line saved_line;
    tricky.  */
 
 /* Table of blanks.  */
-static bool blanks[UCHAR_LIM];
+static bool blanks (wchar_t);
 
 /* Table of non-printing characters. */
-static bool nonprinting[UCHAR_LIM];
+static bool nonprinting (wchar_t);
 
 /* Table of non-dictionary characters (not letters, digits, or blanks). */
-static bool nondictionary[UCHAR_LIM];
+static bool nondictionary (wchar_t);
 
 /* Translation table folding lower case to upper.  */
-static char fold_toupper[UCHAR_LIM];
+static wchar_t fold_toupper (wchar_t);
 
 #define MONTHS_PER_YEAR 12
 
@@ -294,18 +300,18 @@ static char fold_toupper[UCHAR_LIM];
    Alphabetic order allows binary search. */
 static struct month monthtab[] =
 {
-  {"APR", 4},
-  {"AUG", 8},
-  {"DEC", 12},
-  {"FEB", 2},
-  {"JAN", 1},
-  {"JUL", 7},
-  {"JUN", 6},
-  {"MAR", 3},
-  {"MAY", 5},
-  {"NOV", 11},
-  {"OCT", 10},
-  {"SEP", 9}
+  {L"APR", 4},
+  {L"AUG", 8},
+  {L"DEC", 12},
+  {L"FEB", 2},
+  {L"JAN", 1},
+  {L"JUL", 7},
+  {L"JUN", 6},
+  {L"MAR", 3},
+  {L"MAY", 5},
+  {L"NOV", 11},
+  {L"OCT", 10},
+  {L"SEP", 9}
 };
 
 /* During the merge phase, the number of files to merge at once. */
@@ -351,12 +357,12 @@ static bool reverse;
 static bool stable;
 
 /* If TAB has this value, blanks separate fields.  */
-enum { TAB_DEFAULT = CHAR_MAX + 1 };
+#define TAB_DEFAULT WEOF
 
 /* Tab character separating fields.  If TAB_DEFAULT, then fields are
    separated by the empty string between a non-blank character and a blank
    character. */
-static int tab = TAB_DEFAULT;
+static wint_t tab = TAB_DEFAULT;
 
 /* Flag to remove consecutive duplicate lines from the output.
    Only the last of a sequence of equal lines will be output. */
@@ -1271,10 +1277,34 @@ struct_month_cmp (void const *m1, void const *m2)
 {
   struct month const *month1 = m1;
   struct month const *month2 = m2;
-  return strcmp (month1->name, month2->name);
+  return wcscmp (month1->name, month2->name);
 }
 
 #endif
+
+static bool
+blanks (wchar_t c)
+{
+  return wfield_sep (c);
+}
+
+static bool
+nonprinting (wchar_t c)
+{
+  return ! iswprint (c);
+}
+
+static bool
+nondictionary (wchar_t c)
+{
+  return ! iswalnum (c) && ! wfield_sep (c);
+}
+
+static wchar_t
+fold_toupper (wchar_t c)
+{
+  return towupper (c);
+}
 
 /* Initialize the character class tables. */
 
@@ -1283,14 +1313,6 @@ inittables (void)
 {
   size_t i;
 
-  for (i = 0; i < UCHAR_LIM; ++i)
-    {
-      blanks[i] = field_sep (i);
-      nonprinting[i] = ! isprint (i);
-      nondictionary[i] = ! isalnum (i) && ! field_sep (i);
-      fold_toupper[i] = toupper (i);
-    }
-
 #if HAVE_NL_LANGINFO
   /* If we're not in the "C" locale, read different names for months.  */
   if (hard_LC_TIME)
@@ -1298,19 +1320,20 @@ inittables (void)
       for (i = 0; i < MONTHS_PER_YEAR; i++)
         {
           char const *s;
-          size_t s_len;
-          size_t j, k;
-          char *name;
 
           s = nl_langinfo (ABMON_1 + i);
-          s_len = strlen (s);
-          monthtab[i].name = name = xmalloc (s_len + 1);
-          monthtab[i].val = i + 1;
+          wchar_t tmp[strlen (s) + 1];
+          if (mbstowcs (tmp, s, strlen (s) + 1) == (size_t) -1)
+            error (0, errno, _("invalid month name %s"), quote (s));
 
-          for (j = k = 0; j < s_len; j++)
-            if (! isblank (to_uchar (s[j])))
-              name[k++] = fold_toupper[to_uchar (s[j])];
-          name[k] = '\0';
+          size_t out = 0;
+          for (size_t j = 0; tmp[j] != L'\0'; j++)
+            if (! iswblank (tmp[j]))
+              tmp[out++] = towupper (tmp[j]);
+          tmp[out] = L'\0';
+
+          monthtab[i].name = xwcsdup (tmp);
+          monthtab[i].val = i + 1;
         }
       qsort (monthtab, MONTHS_PER_YEAR, sizeof *monthtab, struct_month_cmp);
     }
@@ -1606,9 +1629,11 @@ buffer_linelim (struct buffer const *buf)
 static char *
 begfield (struct line const *line, struct keyfield const *key)
 {
-  char *ptr = line->text, *lim = ptr + line->length - 1;
+  const char *ptr = line->text, *lim = ptr + line->length - 1;
   size_t sword = key->sword;
   size_t schar = key->schar;
+  mbstate_t mbs = { 0 };
+  grapheme c;
 
   /* The leading field separator itself is included in a field when -t
      is absent.  */
@@ -1616,30 +1641,62 @@ begfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && sword--)
       {
-        while (ptr < lim && *ptr != tab)
-          ++ptr;
-        if (ptr < lim)
-          ++ptr;
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
+          {
+            if (c.c == tab)
+              {
+                // Skip over the tab
+                c = grnext (&ptr, lim, &mbs);
+                break;
+              }
+          }
+
+        // Advance over the tab
       }
   else
     while (ptr < lim && sword--)
       {
-        while (ptr < lim && blanks[to_uchar (*ptr)])
-          ++ptr;
-        while (ptr < lim && !blanks[to_uchar (*ptr)])
-          ++ptr;
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
+          {
+            if (!blanks (c.c))
+              break;
+          }
+
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
+          {
+            if (blanks (c.c))
+              break;
+          }
       }
 
   /* If we're ignoring leading blanks when computing the Start
      of the field, skip past them here.  */
   if (key->skipsblanks)
-    while (ptr < lim && blanks[to_uchar (*ptr)])
-      ++ptr;
+    {
+      for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+           c = grnext (&ptr, lim, &mbs))
+        {
+          if (!blanks (c.c))
+            break;
+        }
+    }
 
   /* Advance PTR by SCHAR (if possible), but no further than LIM.  */
-  ptr = MIN (lim, ptr + schar);
+  for (size_t i = 0; i < schar; i++)
+    {
+      if ((c = grnext (&ptr, lim, &mbs)).c == WEOF)
+        break;
+    }
 
-  return ptr;
+  if (!mbsinit (&mbs))
+    die (EXIT_FAILURE, 0,
+         _("multibyte text is still in shifted state at start of field"));
+
+  // TODO: work out const issues
+  return (char *) ptr;
 }
 
 /* Return the limit of (a pointer to the first character after) the field
@@ -1648,8 +1705,10 @@ begfield (struct line const *line, struct keyfield const *key)
 static char *
 limfield (struct line const *line, struct keyfield const *key)
 {
-  char *ptr = line->text, *lim = ptr + line->length - 1;
+  const char *ptr = line->text, *lim = ptr + line->length - 1;
   size_t eword = key->eword, echar = key->echar;
+  mbstate_t mbs = { 0 };
+  grapheme c;
 
   if (echar == 0)
     eword++; /* Skip all of end field.  */
@@ -1664,18 +1723,34 @@ limfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     while (ptr < lim && eword--)
       {
-        while (ptr < lim && *ptr != tab)
-          ++ptr;
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
+          {
+            if (c.c == tab)
+              break;
+          }
+
         if (ptr < lim && (eword || echar))
-          ++ptr;
+          {
+            c = grnext (&ptr, lim, &mbs);
+          }
       }
   else
     while (ptr < lim && eword--)
       {
-        while (ptr < lim && blanks[to_uchar (*ptr)])
-          ++ptr;
-        while (ptr < lim && !blanks[to_uchar (*ptr)])
-          ++ptr;
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
+          {
+            if (!blanks (c.c))
+              break;
+          }
+
+        for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+             c = grnext (&ptr, lim, &mbs))
+          {
+            if (blanks (c.c))
+              break;
+          }
       }
 
 #ifdef POSIX_UNSPECIFIED
@@ -1713,6 +1788,7 @@ limfield (struct line const *line, struct keyfield const *key)
   if (tab != TAB_DEFAULT)
     {
       char *newlim;
+#error needs multibyte
       newlim = memchr (ptr, tab, lim - ptr);
       if (newlim)
         lim = newlim;
@@ -1721,9 +1797,10 @@ limfield (struct line const *line, struct keyfield const *key)
     {
       char *newlim;
       newlim = ptr;
-      while (newlim < lim && blanks[to_uchar (*newlim)])
+#error needs multibyte
+      while (newlim < lim && blanks (to_uchar (*newlim)))
         ++newlim;
-      while (newlim < lim && !blanks[to_uchar (*newlim)])
+      while (newlim < lim && !blanks (to_uchar (*newlim)))
         ++newlim;
       lim = newlim;
     }
@@ -1734,14 +1811,29 @@ limfield (struct line const *line, struct keyfield const *key)
       /* If we're ignoring leading blanks when computing the End
          of the field, skip past them here.  */
       if (key->skipeblanks)
-        while (ptr < lim && blanks[to_uchar (*ptr)])
-          ++ptr;
+        {
+          for (; (c = grpeek (&ptr, lim, &mbs)).c != WEOF;
+               c = grnext (&ptr, lim, &mbs))
+            {
+              if (!blanks (c.c))
+                break;
+            }
+        }
 
       /* Advance PTR by ECHAR (if possible), but no further than LIM.  */
-      ptr = MIN (lim, ptr + echar);
+      for (size_t i = 0; i < echar; i++)
+        {
+          if ((c = grnext (&ptr, lim, &mbs)).c == WEOF)
+            break;
+        }
     }
 
-  return ptr;
+  if (!mbsinit (&mbs))
+    die (EXIT_FAILURE, 0,
+         _("multibyte text is still in shifted state at end of field"));
+
+  // TODO: work out const issues
+  return (char *) ptr;
 }
 
 /* Fill BUF reading from FP, moving buf->left bytes from the end
@@ -1774,7 +1866,8 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
       struct line *linelim = buffer_linelim (buf);
       struct line *line = linelim - buf->nlines;
       size_t avail = (char *) linelim - buf->nlines * line_bytes - ptr;
-      char *line_start = buf->nlines ? line->text + line->length : buf->buf;
+      const char *line_start = buf->nlines ? line->text + line->length :
+          buf->buf;
 
       while (line_bytes + 1 < avail)
         {
@@ -1812,7 +1905,8 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
               *p = '\0';
               ptr = p + 1;
               line--;
-              line->text = line_start;
+              // TODO: figure out const
+              line->text = (char *) line_start;
               line->length = ptr - line_start;
               mergesize = MAX (mergesize, line->length);
               avail -= line_bytes;
@@ -1830,9 +1924,26 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
                   else
                     {
                       if (key->skipsblanks)
-                        while (blanks[to_uchar (*line_start)])
-                          line_start++;
-                      line->keybeg = line_start;
+                        {
+                          const char *line_end = line_start + line->length;
+                          mbstate_t mbs = { 0 };
+                          grapheme c;
+
+                          for (; (c = grpeek (&line_start, line_end, &mbs)).c
+                               != WEOF;
+                               c = grnext (&line_start, line_end, &mbs))
+                            {
+                              if (!blanks (c.c))
+                                break;
+                            }
+
+                          if (!mbsinit (&mbs))
+                            die (EXIT_FAILURE, 0,
+                                 _("multibyte text is still in shifted state "
+                                   "at start of field"));
+                        }
+                      // TODO: Figure out const
+                      line->keybeg = (char *) line_start;
                     }
                 }
 
@@ -1897,46 +2008,75 @@ static char const unit_order[UCHAR_LIM] =
    decimal_point chars only.  Returns the highest digit found in the number,
    or '\0' if no digit has been found.  Upon return *number points at the
    character that immediately follows after the given number.  */
-static unsigned char
+static wchar_t
 traverse_raw_number (char const **number)
 {
   char const *p = *number;
-  unsigned char ch;
-  unsigned char max_digit = '\0';
+  wchar_t max_digit = L'\0';
   bool ends_with_thousands_sep = false;
+  const char *pend = p + strlen (p);
+
+  grapheme ch;
+  mbstate_t mbs = { 0 };
+
+  // Two characters back from the current end
+  const char *p2 = p;
+
+  // One character back from the current end
+  const char *p1 = p;
 
   /* Scan to end of number.
      Decimals or separators not followed by digits stop the scan.
      Numbers ending in decimals or separators are thus considered
-     to be lacking in units.
-     FIXME: add support for multibyte thousands_sep and decimal_point.  */
+     to be lacking in units. */
 
-  while (ISDIGIT (ch = *p++))
+  while (true)
     {
-      if (max_digit < ch)
-        max_digit = ch;
+      p2 = p1;
+      p1 = p;
+      ch = grnext (&p, pend, &mbs);
+
+      if (!iswdigit (ch.c))
+        break;
+
+      if (max_digit < ch.c)
+        max_digit = ch.c;
 
       /* Allow to skip only one occurrence of thousands_sep to avoid finding
          the unit in the next column in case thousands_sep matches as blank
          and is used as column delimiter.  */
-      ends_with_thousands_sep = (*p == thousands_sep);
+      ends_with_thousands_sep = (thousands_sep != WEOF)
+          && (grpeek (&p, pend, &mbs).c == thousands_sep);
       if (ends_with_thousands_sep)
-        ++p;
+        {
+          p2 = p1;
+          p1 = p;
+          grnext (&p, pend, &mbs);
+        }
     }
 
   if (ends_with_thousands_sep)
     {
       /* thousands_sep not followed by digit is not allowed.  */
-      *number = p - 2;
+      *number = p2;
       return max_digit;
     }
 
-  if (ch == decimal_point)
-    while (ISDIGIT (ch = *p++))
-      if (max_digit < ch)
-        max_digit = ch;
+  if (decimal_point != WEOF && ch.c == decimal_point)
+    while (true)
+      {
+        p2 = p1;
+        p1 = p;
+        ch = grnext (&p, pend, &mbs);
 
-  *number = p - 1;
+        if (!iswdigit (ch.c))
+          break;
+
+        if (max_digit < ch.c)
+          max_digit = ch.c;
+    }
+
+  *number = p1;
   return max_digit;
 }
 
@@ -1950,8 +2090,8 @@ find_unit_order (char const *number)
 {
   bool minus_sign = (*number == '-');
   char const *p = number + minus_sign;
-  unsigned char max_digit = traverse_raw_number (&p);
-  if ('0' < max_digit)
+  wchar_t max_digit = traverse_raw_number (&p);
+  if (L'0' < max_digit)
     {
       unsigned char ch = *p;
       int order = unit_order[ch];
@@ -1967,13 +2107,26 @@ find_unit_order (char const *number)
 static int
 human_numcompare (char const *a, char const *b)
 {
-  while (blanks[to_uchar (*a)])
-    a++;
-  while (blanks[to_uchar (*b)])
-    b++;
+  grapheme c;
+
+  mbstate_t mbsa = { 0 };
+  const char *aend = a + strlen (a);
+  for (; (c = grpeek (&a, aend, &mbsa)).c != WEOF; c = grnext (&a, aend, &mbsa))
+    {
+      if (!blanks (c.c))
+        break;
+    }
+
+  mbstate_t mbsb = { 0 };
+  const char *bend = b + strlen (b);
+  for (; (c = grpeek (&b, bend, &mbsb)).c != WEOF; c = grnext (&b, bend, &mbsb))
+    {
+      if (!blanks (c.c))
+        break;
+    }
 
   int diff = find_unit_order (a) - find_unit_order (b);
-  return (diff ? diff : strnumcmp (a, b, decimal_point, thousands_sep));
+  return (diff ? diff : wstrnumcmp (a, b, decimal_point, thousands_sep));
 }
 
 /* Compare strings A and B as numbers without explicitly converting them to
@@ -1983,12 +2136,25 @@ human_numcompare (char const *a, char const *b)
 static int
 numcompare (char const *a, char const *b)
 {
-  while (blanks[to_uchar (*a)])
-    a++;
-  while (blanks[to_uchar (*b)])
-    b++;
+  grapheme c;
 
-  return strnumcmp (a, b, decimal_point, thousands_sep);
+  mbstate_t mbsa = { 0 };
+  const char *aend = a + strlen (a);
+  for (; (c = grpeek (&a, aend, &mbsa)).c != WEOF; c = grnext (&a, aend, &mbsa))
+    {
+      if (!blanks (c.c))
+        break;
+    }
+
+  mbstate_t mbsb = { 0 };
+  const char *bend = b + strlen (b);
+  for (; (c = grpeek (&b, bend, &mbsb)).c != WEOF; c = grnext (&b, bend, &mbsb))
+    {
+      if (!blanks (c.c))
+        break;
+    }
+
+  return wstrnumcmp (a, b, decimal_point, thousands_sep);
 }
 
 /* Work around a problem whereby the long double value returned by glibc's
@@ -2045,17 +2211,20 @@ getmonth (char const *month, char **ea)
 {
   size_t lo = 0;
   size_t hi = MONTHS_PER_YEAR;
+  char const *end = month + strlen (month);
+  mbstate_t mbs = { 0 };
 
-  while (blanks[to_uchar (*month)])
-    month++;
+  while (blanks (grpeek (&month, end, &mbs).c))
+    grnext (&month, end, &mbs);
 
   do
     {
       size_t ix = (lo + hi) / 2;
       char const *m = month;
-      char const *n = monthtab[ix].name;
+      mbstate_t mbs1 = mbs;
+      wchar_t const *n = monthtab[ix].name;
 
-      for (;; m++, n++)
+      while (true)
         {
           if (!*n)
             {
@@ -2063,16 +2232,18 @@ getmonth (char const *month, char **ea)
                 *ea = (char *) m;
               return monthtab[ix].val;
             }
-          if (to_uchar (fold_toupper[to_uchar (*m)]) < to_uchar (*n))
+          if (fold_toupper (grpeek (&m, end, &mbs1).c) < *n)
             {
               hi = ix;
               break;
             }
-          else if (to_uchar (fold_toupper[to_uchar (*m)]) > to_uchar (*n))
+          else if (fold_toupper (grpeek (&m, end, &mbs1).c) > *n)
             {
               lo = ix + 1;
               break;
             }
+          grnext (&m, end, &mbs1);
+          n++;
         }
     }
   while (lo < hi);
@@ -2300,9 +2471,9 @@ key_numeric (struct keyfield const *key)
 static void
 debug_key (struct line const *line, struct keyfield const *key)
 {
-  char *text = line->text;
-  char *beg = text;
-  char *lim = text + line->length - 1;
+  const char *text = line->text;
+  const char *beg = text;
+  char *lim = line->text + line->length - 1;
 
   if (key)
     {
@@ -2317,10 +2488,18 @@ debug_key (struct line const *line, struct keyfield const *key)
           char saved = *lim;
           *lim = '\0';
 
-          while (blanks[to_uchar (*beg)])
-            beg++;
+          grapheme c;
+          mbstate_t mbs = { 0 };
 
-          char *tighter_lim = beg;
+          for (; (c = grpeek (&beg, lim, &mbs)).c != WEOF;
+               c = grnext (&beg, lim, &mbs))
+            {
+              if (!blanks (c.c))
+                break;
+            }
+
+          // TODO: Figure out const
+          char *tighter_lim = (char *) beg;
 
           if (lim < beg)
             tighter_lim = lim;
@@ -2331,8 +2510,8 @@ debug_key (struct line const *line, struct keyfield const *key)
           else if (key->numeric || key->human_numeric)
             {
               char const *p = beg + (beg < lim && *beg == '-');
-              unsigned char max_digit = traverse_raw_number (&p);
-              if ('0' <= max_digit)
+              wchar_t max_digit = traverse_raw_number (&p);
+              if (L'0' <= max_digit)
                 {
                   unsigned char ch = *p;
                   tighter_lim = (char *) p
@@ -2517,6 +2696,32 @@ key_warnings (struct keyfield const *gkey, bool gkey_only)
     error (0, 0, _("option '-r' only applies to last-resort comparison"));
 }
 
+static int
+xtrymemcoll0 (char const *s1, size_t s1size, char const *s2, size_t s2size)
+{
+  errno = 0;
+  int diff = memcoll0 (s1, s1size, s2, s2size);
+  if (errno == 0)
+    return diff;
+
+  // Must contain bytes that the locale doesn't support, so decompose it.
+
+  grapheme tmp1[s1size];
+  grapheme tmp2[s2size];
+  const char *s1end = s1 + s1size;
+  const char *s2end = s2 + s2size;
+  mbstate_t mbs1 = { 0 }, mbs2 = { 0 };
+  size_t len1 = 0, len2 = 0;
+
+  grapheme c;
+  while ((c = grnext (&s1, s1end, &mbs1)).c != WEOF)
+    tmp1[len1++] = c;
+  while ((c = grnext (&s2, s2end, &mbs2)).c != WEOF)
+    tmp2[len2++] = c;
+
+  return xgrmemcoll (tmp1, len1, tmp2, len2);
+}
+
 /* Compare two lines A and B trying every key in sequence until there
    are no more keys or a difference is found. */
 
@@ -2527,17 +2732,17 @@ keycompare (struct line const *a, struct line const *b)
 
   /* For the first iteration only, the key positions have been
      precomputed for us. */
-  char *texta = a->keybeg;
-  char *textb = b->keybeg;
-  char *lima = a->keylim;
-  char *limb = b->keylim;
+  const char *texta = a->keybeg;
+  const char *textb = b->keybeg;
+  const char *lima = a->keylim;
+  const char *limb = b->keylim;
 
   int diff;
 
   while (true)
     {
-      char const *translate = key->translate;
-      bool const *ignore = key->ignore;
+      wchar_t (*translate)(wchar_t) = key->translate;
+      bool (*ignore)(wchar_t) = key->ignore;
 
       /* Treat field ends before field starts as empty fields.  */
       lima = MAX (texta, lima);
@@ -2557,7 +2762,8 @@ keycompare (struct line const *a, struct line const *b)
 
           char enda IF_LINT (= 0);
           char endb IF_LINT (= 0);
-          void *allocated IF_LINT (= NULL);
+          void *allocated = NULL;
+          bool did_allocate = false;
           char stackbuf[4000];
 
           if (ignore || translate)
@@ -2566,37 +2772,104 @@ keycompare (struct line const *a, struct line const *b)
                  translating or ignoring characters, and which need their
                  own storage.  */
 
-              size_t i;
-
               /* Allocate space for copies.  */
-              size_t size = lena + 1 + lenb + 1;
+
+              // Very conservatively: Each multibyte character can yield at most
+              // one wide character, and then on retranslation, each of those
+              // can yield at most MB_CUR_MAX bytes.
+
+              size_t size = (lena + 1) * MB_CUR_MAX + (lenb + 1) * MB_CUR_MAX;
               if (size <= sizeof stackbuf)
                 ta = stackbuf, allocated = NULL;
               else
-                ta = allocated = xmalloc (size);
-              tb = ta + lena + 1;
+                {
+                  ta = allocated = xmalloc (size);
+                  did_allocate = true;
+                }
+              tb = ta + (lena + 1) * MB_CUR_MAX;
 
               /* Put into each copy a version of the key in which the
                  requested characters are ignored or translated.  */
-              for (tlena = i = 0; i < lena; i++)
-                if (! (ignore && ignore[to_uchar (texta[i])]))
-                  ta[tlena++] = (translate
-                                 ? translate[to_uchar (texta[i])]
-                                 : texta[i]);
+
+              grapheme c;
+              const char *in, *end;
+              char *out;
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+              mbstate_t mbsa_out = { 0 }, mbsb_out = { 0 };
+
+              in = texta;
+              out = ta;
+              end = texta + lena;
+
+              while (true)
+                {
+                  c = grnext (&in, end, &mbsa);
+                  if (c.c == WEOF)
+                    break;
+
+                  if (ignore && ignore (c.c))
+                    continue;
+
+                  if (translate)
+                    {
+                      wchar_t translated = translate (c.c);
+                      if (!c.isbyte || translated <= UCHAR_MAX)
+                        c.c = translated;
+                    }
+
+                  // TODO: Does this need to track bytes vs characters?
+                  size_t count = wcrtomb (out, c.c, &mbsa_out);
+                  if (count == (size_t) -1)
+                    die (EXIT_FAILURE, errno, _("string conversion failed"));
+
+                  out += count;
+                }
+
+              tlena = out - ta;
               ta[tlena] = '\0';
 
-              for (tlenb = i = 0; i < lenb; i++)
-                if (! (ignore && ignore[to_uchar (textb[i])]))
-                  tb[tlenb++] = (translate
-                                 ? translate[to_uchar (textb[i])]
-                                 : textb[i]);
+              in = textb;
+              out = tb;
+              end = textb + lenb;
+
+              while (true)
+                {
+                  c = grnext (&in, end, &mbsb);
+                  if (c.c == WEOF)
+                    break;
+
+                  if (ignore && ignore (c.c))
+                    continue;
+
+                  if (translate)
+                    {
+                      wchar_t translated = translate (c.c);
+                      if (!c.isbyte || translated <= UCHAR_MAX)
+                        c.c = translated;
+                    }
+
+                  // TODO: Does this need to track bytes vs characters?
+                  size_t count = wcrtomb (out, c.c, &mbsb_out);
+                  if (count == (size_t) -1)
+                    die (EXIT_FAILURE, errno, _("string conversion failed"));
+
+                  out += count;
+                }
+
+              tlenb = out - tb;
               tb[tlenb] = '\0';
             }
           else
             {
               /* Use the keys in-place, temporarily null-terminated.  */
-              ta = texta; tlena = lena; enda = ta[tlena]; ta[tlena] = '\0';
-              tb = textb; tlenb = lenb; endb = tb[tlenb]; tb[tlenb] = '\0';
+              // TODO: Figure out const
+              ta = (char *) texta;
+              tlena = lena;
+              enda = ta[tlena]; ta[tlena] = '\0';
+
+              tb = (char *) textb;
+              tlenb = lenb;
+              endb = tb[tlenb]; tb[tlenb] = '\0';
             }
 
           if (key->numeric)
@@ -2620,10 +2893,10 @@ keycompare (struct line const *a, struct line const *b)
               else if (tlenb == 0)
                 diff = 1;
               else
-                diff = xmemcoll0 (ta, tlena + 1, tb, tlenb + 1);
+                diff = xtrymemcoll0 (ta, tlena + 1, tb, tlenb + 1);
             }
 
-          if (ignore || translate)
+          if (did_allocate)
             free (allocated);
           else
             {
@@ -2633,33 +2906,48 @@ keycompare (struct line const *a, struct line const *b)
         }
       else if (ignore)
         {
-#define CMP_WITH_IGNORE(A, B)						\
-  do									\
-    {									\
-          while (true)							\
-            {								\
-              while (texta < lima && ignore[to_uchar (*texta)])		\
-                ++texta;						\
-              while (textb < limb && ignore[to_uchar (*textb)])		\
-                ++textb;						\
-              if (! (texta < lima && textb < limb))			\
-                break;							\
-              diff = to_uchar (A) - to_uchar (B);			\
-              if (diff)							\
-                goto not_equal;						\
-              ++texta;							\
-              ++textb;							\
-            }								\
-                                                                        \
-          diff = (texta < lima) - (textb < limb);			\
-    }									\
-  while (0)
+          while (true)
+            {
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+              grapheme ca, cb;
 
-          if (translate)
-            CMP_WITH_IGNORE (translate[to_uchar (*texta)],
-                             translate[to_uchar (*textb)]);
-          else
-            CMP_WITH_IGNORE (*texta, *textb);
+              for (; (ca = grpeek (&texta, lima, &mbsa)).c != WEOF;
+                   ca = grnext (&texta, lima, &mbsa))
+                {
+                  if (!ignore (ca.c))
+                    break;
+                }
+
+              for (; (cb = grpeek (&textb, limb, &mbsb)).c != WEOF;
+                   cb = grnext (&textb, limb, &mbsb))
+                {
+                  if (!ignore (cb.c))
+                    break;
+                }
+
+              if (! (texta < lima && textb < limb))
+                break;
+
+              if (translate)
+                {
+                  wchar_t outa = translate (ca.c);
+                  wchar_t outb = translate (cb.c);
+
+                  if (!ca.isbyte || outa <= UCHAR_MAX)
+                    ca.c = outa;
+                  if (!cb.isbyte || outb <= UCHAR_MAX)
+                    cb.c = outb;
+                }
+
+              diff = ca.c - cb.c;
+              if (diff)
+                goto not_equal;
+
+              ca = grnext (&texta, lima, &mbsa);
+              cb = grnext (&textb, limb, &mbsb);
+            }
+
+            diff = (texta < lima) - (textb < limb);
         }
       else if (lena == 0)
         diff = - NONZERO (lenb);
@@ -2669,16 +2957,34 @@ keycompare (struct line const *a, struct line const *b)
         {
           if (translate)
             {
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+              grapheme ca, cb;
+
               while (texta < lima && textb < limb)
                 {
-                  diff = (to_uchar (translate[to_uchar (*texta++)])
-                          - to_uchar (translate[to_uchar (*textb++)]));
+                  ca = grpeek (&texta, lima, &mbsa);
+                  cb = grpeek (&textb, limb, &mbsb);
+
+                  wchar_t outa = translate (ca.c);
+                  wchar_t outb = translate (cb.c);
+
+                  if (!ca.isbyte || outa <= UCHAR_MAX)
+                    ca.c = outa;
+                  if (!cb.isbyte || outb <= UCHAR_MAX)
+                    cb.c = outb;
+
+                  diff = ca.c - cb.c;
                   if (diff)
                     goto not_equal;
+
+                  ca = grnext (&texta, lima, &mbsa);
+                  cb = grnext (&textb, limb, &mbsb);
                 }
             }
           else
             {
+              // No multibyte here because this is only run in the C locale
+              // without transformations
               diff = memcmp (texta, textb, MIN (lena, lenb));
               if (diff)
                 goto not_equal;
@@ -2706,10 +3012,22 @@ keycompare (struct line const *a, struct line const *b)
           texta = a->text, textb = b->text;
           if (key->skipsblanks)
             {
-              while (texta < lima && blanks[to_uchar (*texta)])
-                ++texta;
-              while (textb < limb && blanks[to_uchar (*textb)])
-                ++textb;
+              grapheme c;
+              mbstate_t mbsa = { 0 }, mbsb = { 0 };
+
+              for (; (c = grpeek (&texta, lima, &mbsa)).c != WEOF;
+                   c = grnext (&texta, lima, &mbsa))
+                {
+                  if (!blanks (c.c))
+                    break;
+                }
+
+              for (; (c = grpeek (&textb, limb, &mbsb)).c != WEOF;
+                   c = grnext (&textb, limb, &mbsb))
+                {
+                  if (!blanks (c.c))
+                    break;
+                }
             }
         }
     }
@@ -2755,7 +3073,7 @@ compare (struct line const *a, struct line const *b)
          it will not unconditionally write '\0' after the
          passed in buffers, which was seen to give around
          a 3% increase in performance for short lines.  */
-      diff = xmemcoll0 (a->text, alen + 1, b->text, blen + 1);
+      diff = xtrymemcoll0 (a->text, alen + 1, b->text, blen + 1);
     }
   else if (! (diff = memcmp (a->text, b->text, MIN (alen, blen))))
     diff = alen < blen ? -1 : alen != blen;
@@ -3193,7 +3511,7 @@ sequential_sort (struct line *restrict lines, size_t nlines,
   if (nlines == 2)
     {
       /* Declare 'swap' as int, not bool, to work around a bug
-        <https://lists.gnu.org/r/bug-coreutils/2005-10/msg00086.html>
+         <http://lists.gnu.org/archive/html/bug-coreutils/2005-10/msg00086.html>
          in the IBM xlc 6.0.0.0 compiler in 64-bit mode.  */
       int swap = (0 < compare (&lines[-1], &lines[-2]));
       if (to_temp)
@@ -4234,14 +4552,27 @@ main (int argc, char **argv)
     /* If the locale doesn't define a decimal point, or if the decimal
        point is multibyte, use the C locale's decimal point.  FIXME:
        add support for multibyte decimal points.  */
-    decimal_point = to_uchar (locale->decimal_point[0]);
-    if (! decimal_point || locale->decimal_point[1])
-      decimal_point = '.';
 
-    /* FIXME: add support for multibyte thousands separators.  */
-    thousands_sep = to_uchar (*locale->thousands_sep);
-    if (! thousands_sep || locale->thousands_sep[1])
-      thousands_sep = -1;
+    decimal_point = L'.';
+    thousands_sep = WEOF;
+
+    const char *d = locale->decimal_point;
+    if (d != NULL)
+      {
+        mbstate_t ds = { 0 };
+        grapheme dc = grnext (&d, d + strlen (d), &ds);
+        if (dc.c != WEOF)
+          decimal_point = dc.c;
+      }
+
+    const char *t = locale->thousands_sep;
+    if (t != NULL)
+      {
+        mbstate_t ts = { 0 };
+        grapheme tc = grnext (&t, t + strlen (t), &ts);
+        if (tc.c != EOF)
+          thousands_sep = tc.c;
+      }
   }
 
   have_read_stdin = false;
@@ -4518,23 +4849,26 @@ main (int argc, char **argv)
 
         case 't':
           {
-            char newtab = optarg[0];
-            if (! newtab)
-              die (SORT_FAILURE, 0, _("empty tab"));
-            if (optarg[1])
+            wchar_t newtab;
+            if (STREQ (optarg, "\\0"))
+              newtab = '\0';
+            else
               {
-                if (STREQ (optarg, "\\0"))
-                  newtab = '\0';
-                else
-                  {
-                    /* Provoke with 'sort -txx'.  Complain about
-                       "multi-character tab" instead of "multibyte tab", so
-                       that the diagnostic's wording does not need to be
-                       changed once multibyte characters are supported.  */
-                    die (SORT_FAILURE, 0, _("multi-character tab %s"),
-                         quote (optarg));
-                  }
+                mbstate_t mbs = { 0 };
+                const char *arg = optarg;
+                grapheme g = grnext (&arg, arg + strlen (arg), &mbs);
+                if (g.c == WEOF)
+                  die (SORT_FAILURE, 0, _("empty tab"));
+                if (*arg != '\0')
+                  /* Provoke with 'sort -txx'.  Complain about
+                     "multi-character tab" instead of "multibyte tab", so
+                     that the diagnostic's wording does not need to be
+                     changed once multibyte characters are supported.  */
+                  die (SORT_FAILURE, 0, _("multi-character tab %s"),
+                       quote (optarg));
+                newtab = g.c;
               }
+
             if (tab != TAB_DEFAULT && tab != newtab)
               die (SORT_FAILURE, 0, _("incompatible tabs"));
             tab = newtab;

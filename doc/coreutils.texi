@@ -144,7 +144,7 @@
 This manual documents version @value{VERSION} of the GNU core
 utilities, including the standard programs for text and file manipulation.
 
-Copyright @copyright{} 1994-2017 Free Software Foundation, Inc.
+Copyright @copyright{} 1994-2018 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -2288,6 +2288,10 @@ and Michael F. Plass in ``Breaking Paragraphs Into Lines'',
 @cite{Software---Practice & Experience} @b{11}, 11 (November 1981),
 1119--1184.
 
+Note that older versions of GNU @command{fmt} counted bytes rather than
+column positions, so lines that contained multibyte or zero-width characters
+would have had the wrong widths.
+
 The program accepts the following options.  Also see @ref{Common options}.
 
 @table @samp
@@ -2396,6 +2400,13 @@ is @samp{space}).  For multicolumn output, lines will always be truncated to
 For single
 column output no line truncation occurs by default.  Use @option{-W} option to
 truncate lines in that case.
+
+Note that older versions of GNU @command{pr} counted bytes,
+not column positions, so lines that contained multibyte or
+zero-width characters would have had the wrong widths.
+Earlier versions also only allowed bytes, not characters,
+as separators in the @option{--expand-tabs}, @option{--output-tabs},
+and @option{--number-lines} options.
 
 The program accepts the following options.  Also see @ref{Common options}.
 
@@ -2717,6 +2728,11 @@ is split into as many lines as necessary.
 than one column, backspace decreases the column count, and carriage
 return sets the column to zero.
 
+Note that older versions of GNU @command{fmt} counted bytes,
+not column positions,
+so text that contained multibyte or zero-width characters would be folded to
+the wrong width.
+
 The program accepts the following options.  Also see @ref{Common options}.
 
 @table @samp
@@ -2727,7 +2743,7 @@ The program accepts the following options.  Also see @ref{Common options}.
 @opindex --bytes
 Count bytes rather than columns, so that tabs, backspaces, and carriage
 returns are each counted as taking up one column, just like other
-characters.
+bytes. A character in a multibyte locale can count as several bytes.
 
 @item -s
 @itemx --spaces
@@ -4094,6 +4110,12 @@ purposes.  If the final byte of an input file is not a newline, GNU
 specified for all GNU utilities) has no limit on input line length or
 restrictions on bytes allowed within lines.
 
+Note that older versions of GNU @command{sort} did not support
+multibyte field separators (@option{--field-separator}) or case folding
+(@option{--ignore-case}) of multibyte characters,
+and positions within sort keys (@option{--key}) referred to bytes rather
+than to characters. These features now operate on characters instead of bytes.
+
 @command{sort} has three modes of operation: sort (the default), merge,
 and check for sortedness.  The following options change the operation
 mode:
@@ -4945,6 +4967,13 @@ duplicate lines, perhaps you want to use @code{sort -u}.
 @vindex LC_COLLATE
 Comparisons honor the rules specified by the @env{LC_COLLATE}
 locale category.
+
+Note that in older versions of GNU @command{uniq}, case-insensitive
+comparisons (@option{--ignore-case}) did not work on multibyte characters,
+and the options to skip (@option{--skip-chars}) or compare
+(@option{--check-chars}) a specified number of characters actually skipped
+or compared that number of bytes. These functions now operate upon
+characters, not bytes.
 
 If no @var{output} file is specified, @command{uniq} writes to standard
 output.
@@ -5899,6 +5928,14 @@ can be repeated, can overlap, and can be specified in any order; but
 the selected input is written in the same order that it is read, and
 is written exactly once.
 
+Note that in older versions of GNU @command{cut}, cutting a specified
+number of characters with @option{--characters} actually cut that number
+of bytes, the @option{--no-character-splitting} option was not
+available to avoid cutting apart characters when cutting bytes,
+and the options to specify field delimiters (@option{--delimiter}
+and @option{--output-delimiter}) specified bytes, not characters.
+These functions now operate upon characters, not bytes.
+
 The program accepts the following options.  Also see @ref{Common
 options}.
 
@@ -5919,8 +5956,8 @@ string between ranges of selected bytes.
 @opindex -c
 @opindex --characters
 Select for printing only the characters in positions listed in
-@var{character-list}.  The same as @option{-b} for now, but
-internationalization will change that.  Tabs and backspaces are
+@var{character-list}.  In multibyte locales, a character may be
+more than one byte.  Tabs and backspaces are
 treated like any other character; they take up 1 character.  If an
 output delimiter is specified, (see the description of
 @option{--output-delimiter}), then output that string between ranges
@@ -5934,6 +5971,14 @@ Select for printing only the fields listed in @var{field-list}.
 Fields are separated by a TAB character by default.  Also print any
 line that contains no delimiter character, unless the
 @option{--only-delimited} (@option{-s}) option is specified.
+
+@item -n
+@itemx --no-character-splitting
+@opindex -n
+@opindex --no-character-splitting
+If @option{--bytes} is active, do not allow multibyte characters
+to be split. The position of the last byte in each multibyte character
+controls whether the entire character appears in the output.
 
 Note @command{awk} supports more sophisticated field processing,
 like reordering fields, and handling fields aligned with blank characters.
@@ -5959,16 +6004,16 @@ join -a1 -o 1.2,1.1 - /dev/null # reorder the first two fields
 @end verbatim
 @end example
 
-@item -d @var{input_delim_byte}
-@itemx --delimiter=@var{input_delim_byte}
+@item -d @var{input_delim_char}
+@itemx --delimiter=@var{input_delim_char}
 @opindex -d
 @opindex --delimiter
-With @option{-f}, use the first byte of @var{input_delim_byte} as
+With @option{-f}, use the first character of @var{input_delim_char} as
 the input fields separator (default is TAB).
 
 @item -n
 @opindex -n
-Do not split multi-byte characters (no-op for now).
+Do not split multi-byte characters when using @option{-b}.
 
 @item -s
 @itemx --only-delimited
@@ -6061,6 +6106,10 @@ $ seq 4 | paste -d ' ' - -
 3 4
 @end example
 
+Note that in older versions of GNU @command{paste}, the column delimiters
+(@option{--delimiters}) were bytes. The option now takes a list of
+characters, not bytes.
+
 The program accepts the following options.  Also see @ref{Common options}.
 
 @table @samp
@@ -6135,6 +6184,11 @@ e 5 Y
 @end group
 @end example
 
+Note that in older versions of GNU @command{join}, case-insensitive
+comparisons (@option{--ignore-case}) did not work on multibyte characters,
+and the field separator (@option{-t}) was required to be a byte, not
+a character.  These functions now operate upon
+characters, not bytes.
 
 @noindent
 @command{join}'s default behavior (when no options are given):
@@ -6669,13 +6723,20 @@ The @option{--complement} (@option{-c}, @option{-C}) option replaces
 @var{set1} with its
 complement (all of the characters that are not in @var{set1}).
 
-Currently @command{tr} fully supports only single-byte characters.
-Eventually it will support multibyte characters; when it does, the
+The intent of @option{-C} and @option{-c} is that
 @option{-C} option will cause it to complement the set of characters,
 whereas @option{-c} will cause it to complement the set of values.
 This distinction will matter only when some values are not characters,
 and this is possible only in locales using multibyte encodings when
-the input contains encoding errors.
+the input contains encoding errors. As it is now,
+@command{tr} treats bytes that are not part of characters as if they
+were characters themselves, and
+@option{-C} and @option{-c} do the same thing.
+
+Note that older versions of GNU @command{tr} transliterated bytes,
+not characters, so multibyte characters spelled out as sets could
+not be transliterated, and character class mappings did not work
+for multibyte characters. It now operates on characters, not bytes.
 
 The program accepts the @option{--help} and @option{--version}
 options.  @xref{Common options}.  Options must precede operands.
@@ -7041,6 +7102,11 @@ backspace characters in the output; they decrement the column count for
 tab calculations.  The default action is equivalent to @option{-t 8} (set
 tabs every 8 columns).
 
+Note that older versions of GNU @command{expand} actually counted
+bytes, not column positions, so tabs that followed multibyte or
+zero-width characters would be expanded to the wrong number of spaces.
+It now counts column positions, not bytes.
+
 The program accepts the following options.  Also see @ref{Common options}.
 
 @table @samp
@@ -7110,6 +7176,11 @@ that precede all non-blank characters) on each line.  It
 preserves backspace characters in the output; they decrement the column
 count for tab calculations.  By default, tabs are set at every 8th
 column.
+
+Note that older versions of GNU @command{unexpand} actually counted
+bytes, not column positions, so series of spaces that followed multibyte or
+zero-width characters would be contracted to the wrong number of spaces
+and tabs. It now counts column positions, not bytes.
 
 The program accepts the following options.  Also see @ref{Common options}.
 

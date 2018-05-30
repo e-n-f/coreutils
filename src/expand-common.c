@@ -19,12 +19,15 @@
 #include <assert.h>
 #include <stdio.h>
 #include <sys/types.h>
+#include <wchar.h>
+#include <wctype.h>
 #include "system.h"
 #include "die.h"
 #include "error.h"
 #include "fadvise.h"
-#include "quote.h"
 #include "xstrndup.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #include "expand-common.h"
 
@@ -128,19 +131,19 @@ set_increment_size (uintmax_t tabval)
 
 /* Add the comma or blank separated list of tab stops STOPS
    to the list of tab stops.  */
-extern void
-parse_tab_stops (char const *stops)
+static void
+parse_tab_stops_wc (wchar_t const *stops)
 {
   bool have_tabval = false;
   uintmax_t tabval = 0;
   bool extend_tabval = false;
   bool increment_tabval = false;
-  char const *num_start = NULL;
+  wchar_t const *num_start = NULL;
   bool ok = true;
 
   for (; *stops; stops++)
     {
-      if (*stops == ',' || isblank (to_uchar (*stops)))
+      if (*stops == L',' || iswblank (*stops))
         {
           if (have_tabval)
             {
@@ -165,29 +168,29 @@ parse_tab_stops (char const *stops)
             }
           have_tabval = false;
         }
-      else if (*stops == '/')
+      else if (*stops == L'/')
         {
           if (have_tabval)
             {
               error (0, 0, _("'/' specifier not at start of number: %s"),
-                     quote (stops));
+                     wquote (stops));
               ok = false;
             }
           extend_tabval = true;
           increment_tabval = false;
         }
-      else if (*stops == '+')
+      else if (*stops == L'+')
         {
           if (have_tabval)
             {
               error (0, 0, _("'+' specifier not at start of number: %s"),
-                     quote (stops));
+                     wquote (stops));
               ok = false;
             }
           increment_tabval = true;
           extend_tabval = false;
         }
-      else if (ISDIGIT (*stops))
+      else if (ISWDIGIT (*stops))
         {
           if (!have_tabval)
             {
@@ -197,11 +200,11 @@ parse_tab_stops (char const *stops)
             }
 
           /* Detect overflow.  */
-          if (!DECIMAL_DIGIT_ACCUMULATE (tabval, *stops - '0', uintmax_t))
+          if (!DECIMAL_DIGIT_ACCUMULATE (tabval, *stops - L'0', uintmax_t))
             {
-              size_t len = strspn (num_start, "0123456789");
-              char *bad_num = xstrndup (num_start, len);
-              error (0, 0, _("tab stop is too large %s"), quote (bad_num));
+              size_t len = wcsspn (num_start, L"0123456789");
+              wchar_t *bad_num = xwcsndup (num_start, len);
+              error (0, 0, _("tab stop is too large %s"), wquote (bad_num));
               free (bad_num);
               ok = false;
               stops = num_start + len - 1;
@@ -210,7 +213,7 @@ parse_tab_stops (char const *stops)
       else
         {
           error (0, 0, _("tab size contains invalid character(s): %s"),
-                 quote (stops));
+                 wquote (stops));
           ok = false;
           break;
         }
@@ -228,6 +231,15 @@ parse_tab_stops (char const *stops)
 
   if (! ok)
     exit (EXIT_FAILURE);
+}
+
+void
+parse_tab_stops (char const *stops)
+{
+  wchar_t tmp[strlen (stops) + 1];
+  if (mbstowcs (tmp, stops, strlen (stops) + 1) == (size_t) -1)
+    die (EXIT_FAILURE, 0, _("multibyte string conversion"));
+  parse_tab_stops_wc (tmp);
 }
 
 /* Check that the list of tab stops TABS, with ENTRIES entries,

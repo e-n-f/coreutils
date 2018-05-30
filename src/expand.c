@@ -37,16 +37,19 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <sys/types.h>
+#include <wctype.h>
 #include "system.h"
 #include "die.h"
 #include "xstrndup.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #include "expand-common.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "expand"
 
-#define AUTHORS proper_name ("David MacKenzie")
+#define AUTHORS proper_name ("David MacKenzie"), proper_name ("Eric Fischer")
 
 static char const shortopts[] = "it:0::1::2::3::4::5::6::7::8::9::";
 
@@ -105,7 +108,7 @@ expand (void)
   while (true)
     {
       /* Input character, or EOF.  */
-      int c;
+      grapheme c;
 
       /* If true, perform translations.  */
       bool convert = true;
@@ -120,17 +123,23 @@ expand (void)
       /* Index in TAB_LIST of next tab stop to examine.  */
       size_t tab_index = 0;
 
+      mbstate_t mbs = { 0 };
+
 
       /* Convert a line of text.  */
 
       do
         {
-          while ((c = getc (fp)) < 0 && (fp = next_file (fp)))
-            continue;
+          while ((c = fgetgr (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
+            {
+              mbstate_t nmbs = { 0 };
+              mbs = nmbs;
+              continue;
+            }
 
           if (convert)
             {
-              if (c == '\t')
+              if (c.c == L'\t')
                 {
                   /* Column the next input tab stop is on.  */
                   uintmax_t next_tab_column;
@@ -146,12 +155,12 @@ expand (void)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
 
                   while (++column < next_tab_column)
-                    if (putchar (' ') < 0)
+                    if (fputwcgr (L' ', stdout) == WEOF)
                       die (EXIT_FAILURE, errno, _("write error"));
 
-                  c = ' ';
+                  c.c = L' ';
                 }
-              else if (c == '\b')
+              else if (c.c == L'\b')
                 {
                   /* Go back one column, and force recalculation of the
                      next tab stop.  */
@@ -160,21 +169,22 @@ expand (void)
                 }
               else
                 {
-                  column++;
-                  if (!column)
+                  int wid = charwidth (c.c);
+                  column += wid;
+                  if (column == 0 && wid != 0)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
                 }
 
-              convert &= convert_entire_line || !! isblank (c);
+              convert &= convert_entire_line || !! iswblank (c.c);
             }
 
-          if (c < 0)
+          if (c.c == WEOF)
             return;
 
-          if (putchar (c) < 0)
+          if (putgrapheme (c).c == WEOF)
             die (EXIT_FAILURE, errno, _("write error"));
         }
-      while (c != '\n');
+      while (c.c != L'\n');
     }
 }
 

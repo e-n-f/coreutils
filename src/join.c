@@ -21,6 +21,8 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <getopt.h>
+#include <wchar.h>
+#include <wctype.h>
 
 #include "system.h"
 #include "die.h"
@@ -34,11 +36,13 @@
 #include "xmemcoll.h"
 #include "xstrtol.h"
 #include "argmatch.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "join"
 
-#define AUTHORS proper_name ("Mike Haertel")
+#define AUTHORS proper_name ("Mike Haertel"), proper_name ("Eric Fischer")
 
 #define join system_join
 
@@ -65,14 +69,14 @@ struct outlist
 /* A field of a line.  */
 struct field
   {
-    char *beg;			/* First character in field.  */
+    grapheme *beg;		/* First character in field.  */
     size_t len;			/* The length of the field.  */
   };
 
 /* A line read from an input file.  */
 struct line
   {
-    struct linebuffer buf;	/* The line itself.  */
+    struct grlinebuffer buf;	/* The line itself.  */
     size_t nfields;		/* Number of elements in 'fields'.  */
     size_t nfields_allocated;	/* Number of elements allocated for 'fields'. */
     struct field *fields;
@@ -139,7 +143,7 @@ static struct outlist *outlist_end = &outlist_head;
 /* Tab character separating fields.  If negative, fields are separated
    by any nonempty string of blanks, otherwise by exactly one
    tab character whose value (when cast to unsigned char) equals TAB.  */
-static int tab = -1;
+static grapheme tab = { .c = WEOF, .isbyte = false };
 
 /* If nonzero, check that the input is correctly ordered. */
 static enum
@@ -180,7 +184,7 @@ static bool ignore_case;
 static bool join_header_lines;
 
 /* The character marking end of line. Default to \n. */
-static char eolchar = '\n';
+static wchar_t eolchar = L'\n';
 
 void
 usage (int status)
@@ -254,7 +258,7 @@ warning message will be given.\n\
 /* Record a field in LINE, with location FIELD and size LEN.  */
 
 static void
-extract_field (struct line *line, char *field, size_t len)
+extract_field (struct line *line, grapheme *field, size_t len)
 {
   if (line->nfields >= line->nfields_allocated)
     {
@@ -270,34 +274,34 @@ extract_field (struct line *line, char *field, size_t len)
 static void
 xfields (struct line *line)
 {
-  char *ptr = line->buf.buffer;
-  char const *lim = ptr + line->buf.length - 1;
+  grapheme *ptr = line->buf.buffer;
+  grapheme const *lim = ptr + line->buf.length - 1;
 
   if (ptr == lim)
     return;
 
-  if (0 <= tab && tab != '\n')
+  if (tab.c != WEOF && tab.c != '\n')
     {
-      char *sep;
-      for (; (sep = memchr (ptr, tab, lim - ptr)) != NULL; ptr = sep + 1)
+      grapheme *sep;
+      for (; (sep = grmemchr (ptr, tab.c, lim - ptr)) != NULL; ptr = sep + 1)
         extract_field (line, ptr, sep - ptr);
     }
-  else if (tab < 0)
+  else if (tab.c == WEOF)
     {
       /* Skip leading blanks before the first field.  */
-      while (field_sep (*ptr))
+      while (wfield_sep (ptr->c))
         if (++ptr == lim)
           return;
 
       do
         {
-          char *sep;
-          for (sep = ptr + 1; sep != lim && ! field_sep (*sep); sep++)
+          grapheme *sep;
+          for (sep = ptr + 1; sep != lim && ! wfield_sep (sep->c); sep++)
             continue;
           extract_field (line, ptr, sep - ptr);
           if (sep == lim)
             return;
-          for (ptr = sep + 1; ptr != lim && field_sep (*ptr); ptr++)
+          for (ptr = sep + 1; ptr != lim && wfield_sep (ptr->c); ptr++)
             continue;
         }
       while (ptr != lim);
@@ -327,8 +331,8 @@ keycmp (struct line const *line1, struct line const *line2,
         size_t jf_1, size_t jf_2)
 {
   /* Start of field to compare in each file.  */
-  char *beg1;
-  char *beg2;
+  grapheme *beg1;
+  grapheme *beg2;
 
   size_t len1;
   size_t len2;		/* Length of fields to compare.  */
@@ -361,18 +365,30 @@ keycmp (struct line const *line1, struct line const *line2,
   if (len2 == 0)
     return 1;
 
+  grapheme tmp1[len1], tmp2[len2];
+  memcpy (tmp1, beg1, len1 * sizeof (grapheme));
+  memcpy (tmp2, beg2, len2 * sizeof (grapheme));
+
   if (ignore_case)
     {
-      /* FIXME: ignore_case does not work with NLS (in particular,
-         with multibyte chars).  */
-      diff = memcasecmp (beg1, beg2, MIN (len1, len2));
+      // As sort -f does
+      for (size_t i = 0; i < len1; i++)
+        {
+          wchar_t c = towupper (tmp1[i].c);
+          if (!tmp1[i].isbyte || c <= UCHAR_MAX)
+            tmp1[i].c = c;
+        }
+      for (size_t i = 0; i < len2; i++)
+        {
+          wchar_t c = towupper (tmp2[i].c);
+          if (!tmp2[i].isbyte || c <= UCHAR_MAX)
+            tmp2[i].c = c;
+        }
     }
-  else
-    {
-      if (hard_LC_COLLATE)
-        return xmemcoll (beg1, len1, beg2, len2);
-      diff = memcmp (beg1, beg2, MIN (len1, len2));
-    }
+
+  if (hard_LC_COLLATE)
+    return xgrmemcoll (tmp1, len1, tmp2, len2);
+  diff = memcmp (tmp1, tmp2, MIN (len1, len2) * sizeof (grapheme));
 
   if (diff)
     return diff;
@@ -405,7 +421,7 @@ check_order (const struct line *prev,
             {
               /* Exclude any trailing newline. */
               size_t len = current->buf.length;
-              if (0 < len && current->buf.buffer[len - 1] == '\n')
+              if (0 < len && current->buf.buffer[len - 1].c == L'\n')
                 --len;
 
               /* If the offending line is longer than INT_MAX, output
@@ -414,9 +430,9 @@ check_order (const struct line *prev,
 
               error ((check_input_order == CHECK_ORDER_ENABLED
                       ? EXIT_FAILURE : 0),
-                     0, _("%s:%"PRIuMAX": is not sorted: %.*s"),
+                     0, _("%s:%"PRIuMAX": is not sorted: %s"),
                      g_names[whatfile - 1], line_no[whatfile - 1],
-                     (int) len, current->buf.buffer);
+                     grnstr (current->buf.buffer, len));
 
               /* If we get to here, the message was merely a warning.
                  Arrange to issue it only once per file.  */
@@ -444,7 +460,7 @@ init_linep (struct line **linep)
    Return true if successful.  */
 
 static bool
-get_line (FILE *fp, struct line **linep, int which)
+get_line (FILE *fp, struct line **linep, int which, mbstate_t *mbs)
 {
   struct line *line = *linep;
 
@@ -459,7 +475,7 @@ get_line (FILE *fp, struct line **linep, int which)
   else
     line = init_linep (linep);
 
-  if (! readlinebuffer_delim (&line->buf, fp, eolchar))
+  if (! readgrlinebuffer_delim (&line->buf, fp, eolchar, mbs))
     {
       if (ferror (fp))
         die (EXIT_FAILURE, errno, _("read error"));
@@ -501,7 +517,7 @@ initseq (struct seq *seq)
 /* Read a line from FP and add it to SEQ.  Return true if successful.  */
 
 static bool
-getseq (FILE *fp, struct seq *seq, int whichfile)
+getseq (FILE *fp, struct seq *seq, int whichfile, mbstate_t *mbs)
 {
   if (seq->count == seq->alloc)
     {
@@ -510,7 +526,7 @@ getseq (FILE *fp, struct seq *seq, int whichfile)
         seq->lines[i] = NULL;
     }
 
-  if (get_line (fp, &seq->lines[seq->count], whichfile))
+  if (get_line (fp, &seq->lines[seq->count], whichfile, mbs))
     {
       ++seq->count;
       return true;
@@ -521,12 +537,13 @@ getseq (FILE *fp, struct seq *seq, int whichfile)
 /* Read a line from FP and add it to SEQ, as the first item if FIRST is
    true, else as the next.  */
 static bool
-advance_seq (FILE *fp, struct seq *seq, bool first, int whichfile)
+advance_seq (FILE *fp, struct seq *seq, bool first, int whichfile,
+             mbstate_t *mbs)
 {
   if (first)
     seq->count = 0;
 
-  return getseq (fp, seq, whichfile);
+  return getseq (fp, seq, whichfile, mbs);
 }
 
 static void
@@ -553,7 +570,12 @@ prfield (size_t n, struct line const *line)
     {
       len = line->fields[n].len;
       if (len)
-        fwrite (line->fields[n].beg, 1, len, stdout);
+        {
+          for (size_t i = 0; i < len; i++)
+            {
+              putgrapheme (line->fields[n].beg[i]);
+            }
+        }
       else if (empty_filler)
         fputs (empty_filler, stdout);
     }
@@ -568,16 +590,16 @@ prfields (struct line const *line, size_t join_field, size_t autocount)
 {
   size_t i;
   size_t nfields = autoformat ? autocount : line->nfields;
-  char output_separator = tab < 0 ? ' ' : tab;
+  grapheme output_separator = tab.c == WEOF ? grapheme_wchar (L' ') : tab;
 
   for (i = 0; i < join_field && i < nfields; ++i)
     {
-      putchar (output_separator);
+      fputgr (output_separator, stdout);
       prfield (i, line);
     }
   for (i = join_field + 1; i < nfields; ++i)
     {
-      putchar (output_separator);
+      fputgr (output_separator, stdout);
       prfield (i, line);
     }
 }
@@ -588,7 +610,7 @@ static void
 prjoin (struct line const *line1, struct line const *line2)
 {
   const struct outlist *outlist;
-  char output_separator = tab < 0 ? ' ' : tab;
+  grapheme output_separator = tab.c == WEOF ? grapheme_wchar (L' ') : tab;
   size_t field;
   struct line const *line;
 
@@ -622,9 +644,9 @@ prjoin (struct line const *line1, struct line const *line2)
           o = o->next;
           if (o == NULL)
             break;
-          putchar (output_separator);
+          fputgr (output_separator, stdout);
         }
-      putchar (eolchar);
+      fputwcgr (eolchar, stdout);
     }
   else
     {
@@ -646,7 +668,7 @@ prjoin (struct line const *line1, struct line const *line2)
       prfields (line1, join_field_1, autocount_1);
       prfields (line2, join_field_2, autocount_2);
 
-      putchar (eolchar);
+      fputwcgr (eolchar, stdout);
     }
 }
 
@@ -662,11 +684,13 @@ join (FILE *fp1, FILE *fp2)
   fadvise (fp1, FADVISE_SEQUENTIAL);
   fadvise (fp2, FADVISE_SEQUENTIAL);
 
+  mbstate_t mbs1 = { 0 }, mbs2 = { 0 };
+
   /* Read the first line of each file.  */
   initseq (&seq1);
-  getseq (fp1, &seq1, 1);
+  getseq (fp1, &seq1, 1, &mbs1);
   initseq (&seq2);
-  getseq (fp2, &seq2, 2);
+  getseq (fp2, &seq2, 2, &mbs2);
 
   if (autoformat)
     {
@@ -682,9 +706,9 @@ join (FILE *fp1, FILE *fp2)
       prevline[0] = NULL;
       prevline[1] = NULL;
       if (seq1.count)
-        advance_seq (fp1, &seq1, true, 1);
+        advance_seq (fp1, &seq1, true, 1, &mbs1);
       if (seq2.count)
-        advance_seq (fp2, &seq2, true, 2);
+        advance_seq (fp2, &seq2, true, 2, &mbs2);
     }
 
   while (seq1.count && seq2.count)
@@ -695,7 +719,7 @@ join (FILE *fp1, FILE *fp2)
         {
           if (print_unpairables_1)
             prjoin (seq1.lines[0], &uni_blank);
-          advance_seq (fp1, &seq1, true, 1);
+          advance_seq (fp1, &seq1, true, 1, &mbs1);
           seen_unpairable = true;
           continue;
         }
@@ -703,7 +727,7 @@ join (FILE *fp1, FILE *fp2)
         {
           if (print_unpairables_2)
             prjoin (&uni_blank, seq2.lines[0]);
-          advance_seq (fp2, &seq2, true, 2);
+          advance_seq (fp2, &seq2, true, 2, &mbs2);
           seen_unpairable = true;
           continue;
         }
@@ -712,7 +736,7 @@ join (FILE *fp1, FILE *fp2)
          match the current line from file2.  */
       eof1 = false;
       do
-        if (!advance_seq (fp1, &seq1, false, 1))
+        if (!advance_seq (fp1, &seq1, false, 1, &mbs1))
           {
             eof1 = true;
             ++seq1.count;
@@ -725,7 +749,7 @@ join (FILE *fp1, FILE *fp2)
          match the current line from file1.  */
       eof2 = false;
       do
-        if (!advance_seq (fp2, &seq2, false, 2))
+        if (!advance_seq (fp2, &seq2, false, 2, &mbs2))
           {
             eof2 = true;
             ++seq2.count;
@@ -778,7 +802,7 @@ join (FILE *fp1, FILE *fp2)
         prjoin (seq1.lines[0], &uni_blank);
       if (seq2.count)
         seen_unpairable = true;
-      while (get_line (fp1, &line, 1))
+      while (get_line (fp1, &line, 1, &mbs1))
         {
           if (print_unpairables_1)
             prjoin (line, &uni_blank);
@@ -793,7 +817,7 @@ join (FILE *fp1, FILE *fp2)
         prjoin (&uni_blank, seq2.lines[0]);
       if (seq1.count)
         seen_unpairable = true;
-      while (get_line (fp2, &line, 2))
+      while (get_line (fp2, &line, 2, &mbs2))
         {
           if (print_unpairables_2)
             prjoin (&uni_blank, line);
@@ -1099,25 +1123,32 @@ main (int argc, char **argv)
 
         case 't':
           {
-            unsigned char newtab = optarg[0];
-            if (! newtab)
-              newtab = '\n'; /* '' => process the whole line.  */
-            else if (optarg[1])
+            grapheme newtab;
+            /* '' => process the whole line.  */
+            if (optarg[0] == '\0')
+              newtab = grapheme_wchar (L'\n');
+            else
               {
-                if (STREQ (optarg, "\\0"))
-                  newtab = '\0';
-                else
-                  die (EXIT_FAILURE, 0, _("multi-character tab %s"),
-                       quote (optarg));
+                mbstate_t mbs = { 0 };
+                const char *s = optarg, *end = optarg + strlen (optarg);
+                newtab = grnext (&s, end, &mbs);
+                if (newtab.c == WEOF || (grpeek (&s, end, &mbs)).c != WEOF)
+                 {
+                   if (STREQ (optarg, "\\0"))
+                     newtab = grapheme_wchar (L'\0');
+                   else
+                     die (EXIT_FAILURE, 0, _("multi-character tab %s"),
+                          quote (optarg));
+                 }
               }
-            if (0 <= tab && tab != newtab)
+            if (tab.c != WEOF && tab.c != newtab.c)
               die (EXIT_FAILURE, 0, _("incompatible tabs"));
             tab = newtab;
           }
           break;
 
         case 'z':
-          eolchar = 0;
+          eolchar = L'\0';
           break;
 
         case NOCHECK_ORDER_OPTION:

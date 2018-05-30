@@ -1,5 +1,5 @@
 /* pr -- convert text files for printing.
-   Copyright (C) 1988-2017 Free Software Foundation, Inc.
+   (C) 1988-2017 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -310,6 +310,8 @@
 #include <config.h>
 
 #include <getopt.h>
+#include <wchar.h>
+#include <wctype.h>
 #include <sys/types.h>
 #include "system.h"
 #include "die.h"
@@ -323,13 +325,16 @@
 #include "strftime.h"
 #include "xstrtol.h"
 #include "xdectoint.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "pr"
 
 #define AUTHORS \
   proper_name ("Pete TerMaat"), \
-  proper_name ("Roland Huebner")
+  proper_name ("Roland Huebner"), \
+  proper_name ("Eric Fischer")
 
 /* Used with start_position in the struct COLUMN described below.
    If start_position == ANYWHERE, we aren't truncating columns and
@@ -384,6 +389,7 @@ struct COLUMN;
 struct COLUMN
   {
     FILE *fp;			/* Input stream for this column. */
+    mbstate_t mbs;
     char const *name;		/* File name. */
     enum
       {
@@ -399,7 +405,7 @@ struct COLUMN
     bool (*print_func) (struct COLUMN *);
 
     /* Func to print/store chars in this col. */
-    void (*char_func) (char);
+    void (*char_func) (grapheme);
 
     int current_line;		/* Index of current place in line_vector. */
     int lines_stored;		/* Number of lines stored in buff. */
@@ -416,7 +422,7 @@ struct COLUMN
 
 typedef struct COLUMN COLUMN;
 
-static int char_to_clump (char c);
+static int char_to_clump (grapheme c);
 static bool read_line (COLUMN *p);
 static bool print_page (void);
 static bool print_stored (COLUMN *p);
@@ -427,7 +433,7 @@ static void pad_across_to (int position);
 static void add_line_number (COLUMN *p);
 static void getoptnum (const char *n_str, int min, int *num,
                        const char *errfmt);
-static void getoptarg (char *arg, char switch_char, char *character,
+static void getoptarg (const char *arg, char switch_char, wchar_t *character,
                        int *number);
 static void print_files (int number_of_files, char **av);
 static void init_parameters (int number_of_files);
@@ -437,11 +443,11 @@ static void init_funcs (void);
 static void init_store_cols (void);
 static void store_columns (void);
 static void balance (int total_stored);
-static void store_char (char c);
+static void store_char (grapheme c);
 static void pad_down (unsigned int lines);
 static void read_rest_of_line (COLUMN *p);
 static void skip_read (COLUMN *p, int column_number);
-static void print_char (char c);
+static void print_char (grapheme c);
 static void cleanup (void);
 static void print_sep_string (void);
 static void separator_string (const char *optarg_S);
@@ -453,7 +459,7 @@ static COLUMN *column_vector;
    we store the leftmost columns contiguously in buff.
    To print a line from buff, get the index of the first character
    from line_vector[i], and print up to line_vector[i + 1]. */
-static char *buff;
+static grapheme *buff;
 
 /* Index of the position in buff where the next character
    will be stored. */
@@ -557,7 +563,7 @@ static int chars_per_column;
 static bool untabify_input = false;
 
 /* (-e) The input tab character. */
-static char input_tab_char = '\t';
+static wchar_t input_tab_char = L'\t';
 
 /* (-e) Tabstops are at chars_per_tab, 2*chars_per_tab, 3*chars_per_tab, ...
    where the leftmost column is 1. */
@@ -567,7 +573,7 @@ static int chars_per_input_tab = 8;
 static bool tabify_output = false;
 
 /* (-i) The output tab character. */
-static char output_tab_char = '\t';
+static wchar_t output_tab_char = L'\t';
 
 /* (-i) The width of the output tab. */
 static int chars_per_output_tab = 8;
@@ -637,7 +643,7 @@ static int line_number;
 static bool numbered_lines = false;
 
 /* (-n) Character which follows each line number. */
-static char number_separator = '\t';
+static wchar_t number_separator = L'\t';
 
 /* (-n) line counting starts with 1st line of input file (not with 1st
    line of 1st page printed). */
@@ -688,10 +694,10 @@ static bool use_col_separator = false;
 /* String used to separate columns if the -S option has been specified.
    Default without -S but together with one of the column options
    -a|COLUMN|-m is a 'space' and with the -J option a 'tab'. */
-static char const *col_sep_string = "";
+static wchar_t const *col_sep_string = L"";
 static int col_sep_length = 0;
-static char *column_separator = (char *) " ";
-static char *line_separator = (char *) "\t";
+static const wchar_t *column_separator = L" ";
+static const wchar_t *line_separator = L"\t";
 
 /* Number of separator characters waiting to be printed as soon as we
    know that we have any input remaining to be printed. */
@@ -721,7 +727,7 @@ static char const *file_text;
 /* Output columns available, not counting the date and file name.  */
 static int header_width_available;
 
-static char *clump_buff;
+static grapheme *clump_buff;
 
 /* True means we read the line no. lines_per_body in skip_read
    called by skip_to_page. That variable controls the coincidence of a
@@ -846,11 +852,15 @@ parse_column_count (char const *s)
 static void
 separator_string (const char *optarg_S)
 {
-  size_t len = strlen (optarg_S);
+  wchar_t tmp[strlen (optarg_S) + 1];
+  if (mbstowcs (tmp, optarg_S, strlen (optarg_S) + 1) == (size_t) -1)
+    die (EXIT_FAILURE, errno, _("text conversion: %s"), quote (optarg_S));
+
+  size_t len = wcslen (tmp);
   if (INT_MAX < len)
     integer_overflow ();
   col_sep_length = len;
-  col_sep_string = optarg_S;
+  col_sep_string = xwcsdup (tmp);
 }
 
 int
@@ -1008,7 +1018,7 @@ main (int argc, char **argv)
         case 'S':
           old_s = false;
           /* Reset an additional input of -s, -S dominates -s */
-          col_sep_string = "";
+          col_sep_string = L"";
           col_sep_length = 0;
           use_col_separator = true;
           if (optarg)
@@ -1165,10 +1175,16 @@ getoptnum (const char *n_str, int min, int *num, const char *err)
    a number. */
 
 static void
-getoptarg (char *arg, char switch_char, char *character, int *number)
+getoptarg (const char *arg, char switch_char, wchar_t *character, int *number)
 {
-  if (!ISDIGIT (*arg))
-    *character = *arg++;
+  if (*arg && !ISDIGIT (*arg))
+    {
+      mbstate_t mbs = { 0 };
+      grapheme c = grnext (&arg, arg + strlen (arg), &mbs);
+      if (c.c == WEOF)
+        die (EXIT_FAILURE, errno, _("text conversion: %s"), quote (arg));
+      *character = c.c;
+    }
   if (*arg)
     {
       long int tmp_long;
@@ -1232,7 +1248,7 @@ init_parameters (int number_of_files)
         }
       /* It's rather pointless to define a TAB separator with column
          alignment */
-      else if (!join_lines && col_sep_length == 1 && *col_sep_string == '\t')
+      else if (!join_lines && col_sep_length == 1 && *col_sep_string == L'\t')
         col_sep_string = column_separator;
 
       truncate_lines = true;
@@ -1257,7 +1273,7 @@ init_parameters (int number_of_files)
              + TAB_WIDTH (chars_per_input_tab, chars_per_number);   */
 
       /* Estimate chars_per_text without any margin and keep it constant. */
-      if (number_separator == '\t')
+      if (number_separator == L'\t')
         number_width = (chars_per_number
                         + TAB_WIDTH (chars_per_default_tab, chars_per_number));
       else
@@ -1293,7 +1309,7 @@ init_parameters (int number_of_files)
      We've to use 8 as the lower limit, if we use chars_per_default_tab = 8
      to expand a tab which is not an input_tab-char. */
   free (clump_buff);
-  clump_buff = xmalloc (MAX (8, chars_per_input_tab));
+  clump_buff = xmalloc (MAX (8, chars_per_input_tab) * sizeof (grapheme));
 }
 
 /* Open the necessary files,
@@ -1346,6 +1362,8 @@ init_fps (int number_of_files, char **av)
         {
           p->name = _("standard input");
           p->fp = stdin;
+          mbstate_t nmbs = { 0 };
+          p->mbs = nmbs;
           have_read_stdin = true;
           p->status = OPEN;
           p->full_page_printed = false;
@@ -1361,6 +1379,8 @@ init_fps (int number_of_files, char **av)
         {
           p->name = firstname;
           p->fp = firstfp;
+          mbstate_t nmbs = { 0 };
+          p->mbs = nmbs;
           p->status = OPEN;
           p->full_page_printed = false;
           p->lines_stored = 0;
@@ -1469,12 +1489,16 @@ open_file (char *name, COLUMN *p)
     {
       p->name = _("standard input");
       p->fp = stdin;
+      mbstate_t nmbs = { 0 };
+      p->mbs = nmbs;
       have_read_stdin = true;
     }
   else
     {
       p->name = name;
       p->fp = fopen (name, "r");
+      mbstate_t nmbs = { 0 };
+      p->mbs = nmbs;
     }
   if (p->fp == NULL)
     {
@@ -1833,7 +1857,7 @@ print_page (void)
 
       if (pad_vertically)
         {
-          putchar ('\n');
+          fputwcgr (L'\n', stdout);
           --lines_left_on_page;
         }
 
@@ -1842,7 +1866,7 @@ print_page (void)
 
       if (double_space && pv)
         {
-          putchar ('\n');
+          fputwcgr (L'\n', stdout);
           --lines_left_on_page;
         }
     }
@@ -1858,7 +1882,7 @@ print_page (void)
     pad_down (lines_left_on_page + lines_per_footer);
   else if (keep_FF && print_a_FF)
     {
-      putchar ('\f');
+      fputwcgr (L'\f', stdout);
       print_a_FF = false;
     }
 
@@ -1903,7 +1927,8 @@ init_store_cols (void)
   end_vector = xnmalloc (total_lines, sizeof *end_vector);
 
   free (buff);
-  buff = xnmalloc (chars_if_truncate, use_col_separator + 1);
+  buff = xnmalloc (chars_if_truncate,
+                   (use_col_separator + 1) * sizeof (grapheme));
   buff_allocated = chars_if_truncate;  /* Tune this. */
   buff_allocated *= use_col_separator + 1;
 }
@@ -1994,12 +2019,12 @@ balance (int total_stored)
 /* Store a character in the buffer. */
 
 static void
-store_char (char c)
+store_char (grapheme c)
 {
   if (buff_current >= buff_allocated)
     {
       /* May be too generous. */
-      buff = X2REALLOC (buff, &buff_allocated);
+      buff = X2NREALLOC (buff, &buff_allocated);
     }
   buff[buff_current++] = c;
 }
@@ -2017,29 +2042,40 @@ add_line_number (COLUMN *p)
   line_number++;
   s = number_buff + (num_width - chars_per_number);
   for (i = chars_per_number; i > 0; i--)
-    (p->char_func) (*s++);
+    {
+      grapheme c;
+      c = grapheme_wchar (btowc (*s++));
+      (p->char_func) (c);
+    }
 
   if (columns > 1)
     {
       /* Tabification is assumed for multiple columns, also for n-separators,
          but 'default n-separator = TAB' hasn't been given priority over
          equal column_width also specified by POSIX. */
-      if (number_separator == '\t')
+      if (number_separator == L'\t')
         {
           i = number_width - chars_per_number;
           while (i-- > 0)
-            (p->char_func) (' ');
+            {
+              grapheme c = grapheme_wchar (L' ');
+              (p->char_func) (c);
+            }
         }
       else
-        (p->char_func) (number_separator);
+        {
+          grapheme c = grapheme_wchar (number_separator);
+          (p->char_func) (c);
+        }
     }
   else
     /* To comply with POSIX, we avoid any expansion of default TAB
        separator with a single column output. No column_width requirement
        has to be considered. */
     {
-      (p->char_func) (number_separator);
-      if (number_separator == '\t')
+      grapheme c = grapheme_wchar (number_separator);
+      (p->char_func) (c);
+      if (number_separator == L'\t')
         output_position = POS_AFTER_TAB (chars_per_output_tab,
                           output_position);
     }
@@ -2061,7 +2097,7 @@ pad_across_to (int position)
   else
     {
       while (++h <= position)
-        putchar (' ');
+        fputwcgr (L' ', stdout);
       output_position = position;
     }
 }
@@ -2075,10 +2111,10 @@ static void
 pad_down (unsigned int lines)
 {
   if (use_form_feed)
-    putchar ('\f');
+    fputwcgr (L'\f', stdout);
   else
     for (unsigned int i = lines; i; --i)
-      putchar ('\n');
+      fputwcgr (L'\n', stdout);
 }
 
 /* Read the rest of the line.
@@ -2090,21 +2126,22 @@ pad_down (unsigned int lines)
 static void
 read_rest_of_line (COLUMN *p)
 {
-  int c;
+  grapheme c;
   FILE *f = p->fp;
 
-  while ((c = getc (f)) != '\n')
+  while ((c = fgetgr (f, &p->mbs)).c != L'\n')
     {
-      if (c == '\f')
+      if (c.c == L'\f')
         {
-          if ((c = getc (f)) != '\n')
-            ungetc (c, f);
+          c = fpeekgr (p->fp, &p->mbs);
+          if (c.c == L'\n')
+            c = fgetgr (p->fp, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);
           break;
         }
-      else if (c == EOF)
+      else if (c.c == WEOF)
         {
           close_file (p);
           break;
@@ -2124,24 +2161,24 @@ read_rest_of_line (COLUMN *p)
 static void
 skip_read (COLUMN *p, int column_number)
 {
-  int c;
+  grapheme c;
   FILE *f = p->fp;
   int i;
   bool single_ff = false;
   COLUMN *q;
 
   /* Read 1st character in a line or any character succeeding a FF */
-  if ((c = getc (f)) == '\f' && p->full_page_printed)
+  if ((c = fgetgr (f, &p->mbs)).c == L'\f' && p->full_page_printed)
     /* A FF-coincidence with a previous full_page_printed.
        To avoid an additional empty page, eliminate the FF */
-    if ((c = getc (f)) == '\n')
-      c = getc (f);
+    if ((c = fgetgr (f, &p->mbs)).c == L'\n')
+      c = fgetgr (f, &p->mbs);
 
   p->full_page_printed = false;
 
   /* 1st character a FF means a single FF without any printable
      characters. Don't count it as a line with -n option. */
-  if (c == '\f')
+  if (c.c == L'\f')
     single_ff = true;
 
   /* Preparing for a FF-coincidence: Maybe we finish that page
@@ -2149,9 +2186,9 @@ skip_read (COLUMN *p, int column_number)
   if (last_line)
     p->full_page_printed = true;
 
-  while (c != '\n')
+  while (c.c != L'\n')
     {
-      if (c == '\f')
+      if (c.c == L'\f')
         {
           /* No FF-coincidence possible,
              no catching up of a FF-coincidence with next page */
@@ -2164,17 +2201,18 @@ skip_read (COLUMN *p, int column_number)
                 p->full_page_printed = false;
             }
 
-          if ((c = getc (f)) != '\n')
-            ungetc (c, f);
+          c = fpeekgr (f, &p->mbs);
+          if (c.c == L'\n')
+            c = fgetgr (f, &p->mbs);
           hold_file (p);
           break;
         }
-      else if (c == EOF)
+      else if (c.c == WEOF)
         {
           close_file (p);
           break;
         }
-      c = getc (f);
+      c = fgetgr (f, &p->mbs);
     }
 
   if (skip_count)
@@ -2198,11 +2236,11 @@ print_white_space (void)
   while (goal - h_old > 1
          && (h_new = POS_AFTER_TAB (chars_per_output_tab, h_old)) <= goal)
     {
-      putchar (output_tab_char);
+      fputwcgr (output_tab_char, stdout);
       h_old = h_new;
     }
   while (++h_old <= goal)
-    putchar (' ');
+    fputwcgr (L' ', stdout);
 
   output_position = goal;
   spaces_not_printed = 0;
@@ -2216,7 +2254,7 @@ print_white_space (void)
 static void
 print_sep_string (void)
 {
-  char const *s = col_sep_string;
+  wchar_t const *s = col_sep_string;
   int l = col_sep_length;
 
   if (separators_not_printed <= 0)
@@ -2233,7 +2271,7 @@ print_sep_string (void)
             {
               /* 3 types of sep_strings: spaces only, spaces and chars,
               chars only */
-              if (*s == ' ')
+              if (*s == L' ')
                 {
                   /* We're tabifying output; consecutive spaces in
                   sep_string may have to be converted to tabs */
@@ -2244,7 +2282,7 @@ print_sep_string (void)
                 {
                   if (spaces_not_printed > 0)
                     print_white_space ();
-                  putchar (*s++);
+                  fputwcgr (*s++, stdout);
                   ++output_position;
                 }
             }
@@ -2259,7 +2297,7 @@ print_sep_string (void)
    characters. */
 
 static void
-print_clump (COLUMN *p, int n, char *clump)
+print_clump (COLUMN *p, int n, grapheme *clump)
 {
   while (n--)
     (p->char_func) (*clump++);
@@ -2275,11 +2313,11 @@ print_clump (COLUMN *p, int n, char *clump)
    required number of tabs and spaces. */
 
 static void
-print_char (char c)
+print_char (grapheme c)
 {
   if (tabify_output)
     {
-      if (c == ' ')
+      if (c.c == L' ')
         {
           ++spaces_not_printed;
           return;
@@ -2287,16 +2325,12 @@ print_char (char c)
       else if (spaces_not_printed > 0)
         print_white_space ();
 
-      /* Nonprintables are assumed to have width 0, except '\b'. */
-      if (! isprint (to_uchar (c)))
-        {
-          if (c == '\b')
-            --output_position;
-        }
+      if (c.c == L'\b')
+        --output_position;
       else
-        ++output_position;
+        output_position += charwidth (c.c);
     }
-  putchar (c);
+  putgrapheme (c);
 }
 
 /* Skip to page PAGE before printing.
@@ -2405,27 +2439,28 @@ print_header (void)
 static bool
 read_line (COLUMN *p)
 {
-  int c;
+  grapheme c;
   int chars IF_LINT ( = 0);
   int last_input_position;
   int j, k;
   COLUMN *q;
 
   /* read 1st character in each line or any character succeeding a FF: */
-  c = getc (p->fp);
+  c = fgetgr (p->fp, &p->mbs);
 
   last_input_position = input_position;
 
-  if (c == '\f' && p->full_page_printed)
-    if ((c = getc (p->fp)) == '\n')
-      c = getc (p->fp);
+  if (c.c == L'\f' && p->full_page_printed)
+    if ((c = fgetgr (p->fp, &p->mbs)).c == L'\n')
+      c = fgetgr (p->fp, &p->mbs);
   p->full_page_printed = false;
 
-  switch (c)
+  switch (c.c)
     {
-    case '\f':
-      if ((c = getc (p->fp)) != '\n')
-        ungetc (c, p->fp);
+    case L'\f':
+      c = fpeekgr (p->fp, &p->mbs);
+      if (c.c == L'\n')
+        c = fgetgr (p->fp, &p->mbs);
       FF_only = true;
       if (print_a_header && !storing_columns)
         {
@@ -2436,10 +2471,10 @@ read_line (COLUMN *p)
         print_a_FF = true;
       hold_file (p);
       return true;
-    case EOF:
+    case WEOF:
       close_file (p);
       return true;
-    case '\n':
+    case L'\n':
       break;
     default:
       chars = char_to_clump (c);
@@ -2490,27 +2525,28 @@ read_line (COLUMN *p)
     add_line_number (p);
 
   empty_line = false;
-  if (c == '\n')
+  if (c.c == L'\n')
     return true;
 
   print_clump (p, chars, clump_buff);
 
   while (true)
     {
-      c = getc (p->fp);
+      c = fgetgr (p->fp, &p->mbs);
 
-      switch (c)
+      switch (c.c)
         {
-        case '\n':
+        case L'\n':
           return true;
-        case '\f':
-          if ((c = getc (p->fp)) != '\n')
-            ungetc (c, p->fp);
+        case L'\f':
+          c = fpeekgr (p->fp, &p->mbs);
+          if (c.c == L'\n')
+            c = fgetgr (p->fp, &p->mbs);
           if (keep_FF)
             print_a_FF = true;
           hold_file (p);
           return true;
-        case EOF:
+        case WEOF:
           close_file (p);
           return true;
         }
@@ -2547,7 +2583,7 @@ print_stored (COLUMN *p)
   COLUMN *q;
 
   int line = p->current_line++;
-  char *first = &buff[line_vector[line]];
+  grapheme *first = &buff[line_vector[line]];
   /* FIXME
      UMR: Uninitialized memory read:
      * This is occurring while in:
@@ -2559,7 +2595,7 @@ print_stored (COLUMN *p)
      xmalloc        [xmalloc.c:94]
      init_store_cols [pr.c:1648]
      */
-  char *last = &buff[line_vector[line + 1]];
+  grapheme *last = &buff[line_vector[line + 1]];
 
   pad_vertically = true;
 
@@ -2614,27 +2650,26 @@ print_stored (COLUMN *p)
    number of characters is 1.) */
 
 static int
-char_to_clump (char c)
+char_to_clump (grapheme c)
 {
-  unsigned char uc = c;
-  char *s = clump_buff;
+  grapheme *s = clump_buff;
   int i;
-  char esc_buff[4];
+  wchar_t esc_buff[4];
   int width;
   int chars;
   int chars_per_c = 8;
 
-  if (c == input_tab_char)
+  if (c.c == input_tab_char)
     chars_per_c = chars_per_input_tab;
 
-  if (c == input_tab_char || c == '\t')
+  if (c.c == input_tab_char || c.c == L'\t')
     {
       width = TAB_WIDTH (chars_per_c, input_position);
 
       if (untabify_input)
         {
           for (i = width; i; --i)
-            *s++ = ' ';
+            *s++ = grapheme_wchar (L' ');
           chars = width;
         }
       else
@@ -2644,37 +2679,38 @@ char_to_clump (char c)
         }
 
     }
-  else if (! isprint (uc))
+  else if (iswcntrl (c.c))
     {
       if (use_esc_sequence)
         {
           width = 4;
           chars = 4;
-          *s++ = '\\';
-          sprintf (esc_buff, "%03o", uc);
+          *s++ = grapheme_wchar (L'\\');
+          swprintf (esc_buff, 4, L"%03o", c.c);
           for (i = 0; i <= 2; ++i)
-            *s++ = esc_buff[i];
+            *s++ = grapheme_wchar (esc_buff[i]);
         }
       else if (use_cntrl_prefix)
         {
-          if (uc < 0200)
+          if (c.c < 0200)
             {
               width = 2;
               chars = 2;
-              *s++ = '^';
-              *s = c ^ 0100;
+
+              *s++ = grapheme_wchar (L'^');
+              *s = grapheme_wchar (c.c ^ 0100);
             }
           else
             {
               width = 4;
               chars = 4;
-              *s++ = '\\';
-              sprintf (esc_buff, "%03o", uc);
+              *s++ = grapheme_wchar (L'\\');
+              swprintf (esc_buff, 4, L"%03o", c.c);
               for (i = 0; i <= 2; ++i)
-                *s++ = esc_buff[i];
+                *s++ = grapheme_wchar (esc_buff[i]);
             }
         }
-      else if (c == '\b')
+      else if (c.c == L'\b')
         {
           width = -1;
           chars = 1;
@@ -2689,7 +2725,7 @@ char_to_clump (char c)
     }
   else
     {
-      width = 1;
+      width = charwidth (c.c);
       chars = 1;
       *s = c;
     }

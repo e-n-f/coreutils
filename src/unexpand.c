@@ -38,16 +38,19 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <sys/types.h>
+#include <wctype.h>
 #include "system.h"
 #include "die.h"
 #include "xstrndup.h"
+#include "grapheme.h"
+#include "widetext.h"
 
 #include "expand-common.h"
 
 /* The official name of this program (e.g., no 'g' prefix).  */
 #define PROGRAM_NAME "unexpand"
 
-#define AUTHORS proper_name ("David MacKenzie")
+#define AUTHORS proper_name ("David MacKenzie"), proper_name ("Eric Fischer")
 
 
 
@@ -111,7 +114,8 @@ unexpand (void)
   /* The array of pending blanks.  In non-POSIX locales, blanks can
      include characters other than spaces, so the blanks must be
      stored, not merely counted.  */
-  char *pending_blank;
+  grapheme *pending_blank;
+  size_t pending_blank_size;
 
   if (!fp)
     return;
@@ -119,12 +123,13 @@ unexpand (void)
   /* The worst case is a non-blank character, then one blank, then a
      tab stop, then MAX_COLUMN_WIDTH - 1 blanks, then a non-blank; so
      allocate MAX_COLUMN_WIDTH bytes to store the blanks.  */
-  pending_blank = xmalloc (max_column_width);
+  pending_blank = xmalloc (max_column_width * sizeof (grapheme));
+  pending_blank_size = max_column_width;
 
   while (true)
     {
       /* Input character, or EOF.  */
-      int c;
+      grapheme c;
 
       /* If true, perform translations.  */
       bool convert = true;
@@ -153,17 +158,22 @@ unexpand (void)
       /* Number of pending columns of blanks.  */
       size_t pending = 0;
 
+      mbstate_t mbs = { 0 };
 
       /* Convert a line of text.  */
 
       do
         {
-          while ((c = getc (fp)) < 0 && (fp = next_file (fp)))
-            continue;
+          while ((c = fgetgr (fp, &mbs)).c == WEOF && (fp = next_file (fp)))
+            {
+              mbstate_t nmbs = { 0 };
+              mbs = nmbs;
+              continue;
+            }
 
           if (convert)
             {
-              bool blank = !! isblank (c);
+              bool blank = !! iswblank (c.c);
 
               if (blank)
                 {
@@ -180,16 +190,17 @@ unexpand (void)
                       if (next_tab_column < column)
                         die (EXIT_FAILURE, 0, _("input line is too long"));
 
-                      if (c == '\t')
+                      if (c.c == L'\t')
                         {
                           column = next_tab_column;
 
                           if (pending)
-                            pending_blank[0] = '\t';
+                            pending_blank[0] = grapheme_wchar (L'\t');
                         }
                       else
                         {
-                          column++;
+                          int wid = charwidth (c.c);
+                          column += wid;
 
                           if (! (prev_blank && column == next_tab_column))
                             {
@@ -197,13 +208,21 @@ unexpand (void)
                                  will be replaced by tabs.  */
                               if (column == next_tab_column)
                                 one_blank_before_tab_stop = true;
+
+                              if (pending >= pending_blank_size)
+                                {
+                                  pending_blank_size *= 2;
+                                  xrealloc (pending_blank,
+                                            pending_blank_size *
+                                            sizeof (grapheme));
+                                }
                               pending_blank[pending++] = c;
                               prev_blank = true;
                               continue;
                             }
 
                           /* Replace the pending blanks by a tab or two.  */
-                          pending_blank[0] = c = '\t';
+                          pending_blank[0] = c = grapheme_wchar (L'\t');
                         }
 
                       /* Discard pending blanks, unless it was a single
@@ -211,7 +230,7 @@ unexpand (void)
                       pending = one_blank_before_tab_stop;
                     }
                 }
-              else if (c == '\b')
+              else if (c.c == L'\b')
                 {
                   /* Go back one column, and force recalculation of the
                      next tab stop.  */
@@ -221,17 +240,21 @@ unexpand (void)
                 }
               else
                 {
-                  column++;
-                  if (!column)
+                  int wid = charwidth (c.c);
+                  column += wid;
+                  if (column == 0 && wid != 0)
                     die (EXIT_FAILURE, 0, _("input line is too long"));
                 }
 
               if (pending)
                 {
                   if (pending > 1 && one_blank_before_tab_stop)
-                    pending_blank[0] = '\t';
-                  if (fwrite (pending_blank, 1, pending, stdout) != pending)
-                    die (EXIT_FAILURE, errno, _("write error"));
+                    pending_blank[0] = grapheme_wchar (L'\t');
+                  for (size_t i = 0; i < pending; i++)
+                    {
+                      if (putgrapheme (pending_blank[i]).c == WEOF)
+                        die (EXIT_FAILURE, errno, _("write error"));
+                    }
                   pending = 0;
                   one_blank_before_tab_stop = false;
                 }
@@ -240,16 +263,16 @@ unexpand (void)
               convert &= convert_entire_line || blank;
             }
 
-          if (c < 0)
+          if (c.c == WEOF)
             {
               free (pending_blank);
               return;
             }
 
-          if (putchar (c) < 0)
+          if (putgrapheme (c).c == WEOF)
             die (EXIT_FAILURE, errno, _("write error"));
         }
-      while (c != '\n');
+      while (c.c != L'\n');
     }
 }
 
